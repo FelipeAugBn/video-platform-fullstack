@@ -1,0 +1,104 @@
+# ------------------------------------------------------------------
+# Material pessoal de estudo — nunca deve ser versionado.
+# As duas grafias estao cobertas de proposito.
+# ------------------------------------------------------------------
+private/
+.private/
+
+# ------------------------------------------------------------------
+# Ambiente
+# ------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!.env.*.example
+auth.json
+
+# ------------------------------------------------------------------
+# Backend — Laravel / PHP
+# ------------------------------------------------------------------
+backend/vendor/
+backend/node_modules/
+backend/public/build/
+backend/public/hot
+backend/public/storage
+backend/storage/*.key
+backend/storage/pail/
+backend/storage/app/private/
+backend/storage/app/public/
+backend/storage/framework/cache/data/
+backend/storage/framework/sessions/
+backend/storage/framework/testing/
+backend/storage/framework/views/
+backend/storage/logs/
+backend/bootstrap/cache/
+backend/.phpunit.result.cache
+backend/.phpunit.cache/
+backend/.php-cs-fixer.cache
+backend/.pint.cache
+
+# ------------------------------------------------------------------
+# Frontend — Nuxt / Node
+# ------------------------------------------------------------------
+frontend/node_modules/
+frontend/.nuxt/
+frontend/.output/
+frontend/.nitro/
+frontend/.data/
+frontend/.cache/
+frontend/dist/
+frontend/.eslintcache
+frontend/coverage/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.playwright/
+
+# ------------------------------------------------------------------
+# Artefatos gerais
+# ------------------------------------------------------------------
+node_modules/
+coverage/
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------------
+# Dumps e midia pesada usada em teste manual.
+# Fixtures pequenas de teste ficam liberadas de proposito.
+# ------------------------------------------------------------------
+*.sqlite
+*.dump
+dumps/
+*.mp4
+*.mov
+*.mkv
+!backend/tests/Fixtures/**
+!frontend/tests/fixtures/**
+
+# ------------------------------------------------------------------
+# Docker — dados persistidos em volume local, se houver bind mount
+# ------------------------------------------------------------------
+.docker/data/
+docker-compose.override.yml
+
+# ------------------------------------------------------------------
+# Editores e sistema operacional
+# ------------------------------------------------------------------
+.idea/
+.fleet/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ------------------------------------------------------------------
+# Ferramental de assistente local — nao faz parte da entrega
+# ------------------------------------------------------------------
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.codex/
