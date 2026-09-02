@@ -1,7 +1,8 @@
 # Especificação Funcional — Plataforma de Conteúdo em Vídeo
 
 **Feature:** 001-video-platform
-**Estado:** em elaboração — evolui junto com a implementação
+**Estado:** aprovada como baseline funcional. Evolui apenas por mudança
+explicitamente revisada e aprovada, mantida coerente com `plan.md` e com os testes
 **Escopo deste documento:** comportamento do produto integrado (backend + frontend)
 
 ---
@@ -37,9 +38,15 @@ diferencial como obrigação distorce a prioridade da entrega:
 | `[OBRIGATÓRIO]` | Exigido textualmente pelo desafio |
 | `[DECISÃO]` | Decisão funcional adotada pelo projeto dentro do espaço aberto pelo desafio |
 | `[ABERTO]` | Decisão técnica ainda não tomada; pertence ao `plan.md` |
+| `[RESOLVIDO]` | Decisão técnica que esteve aberta e foi fixada no `plan.md` |
 | `[DIFERENCIAL]` | Listado pelo desafio como diferencial, não como requisito mínimo |
 | `[OPCIONAL]` | Listado pelo desafio como escopo opcional |
 | `[FORA]` | Explicitamente não obrigatório |
+
+Não há decisões técnicas ainda abertas nesta feature: as catorze levantadas como
+`ABERTO-001` a `ABERTO-014` foram decididas e estão registradas na seção 17.
+`[ABERTO]` permanece na tabela porque é um estado válido do ciclo documental — uma
+abertura futura será marcada assim antes de ser resolvida.
 
 Uma regra `[DECISÃO]` **não é opcional**. A marca indica a origem da regra, não
 seu peso: depois de adotada, ela precisa ser implementada e testada como qualquer
@@ -59,10 +66,12 @@ O desafio exige um ambiente reproduzível **ou** um ambiente público funcional;
 Docker é o meio escolhido por este projeto e aparece na lista de diferenciais,
 não na de requisitos mínimos.
 
-`[ABERTO]` Estratégia de autenticação, formato dos contratos, estratégia de
+`[RESOLVIDO]` Estratégia de autenticação, formato dos contratos, estratégia de
 renderização do Nuxt, organização de estado, biblioteca de UI, mecanismo de
 storage, mecanismo de fila e simulador de processamento. O desafio deixa todos
 esses pontos a critério do candidato, exigindo apenas que sejam documentados.
+Todos foram decididos e justificados no `plan.md`; a seção 17 lista cada um com
+sua seção de destino.
 
 Nenhuma tecnologia específica de storage, cache ou fila é requisito. MinIO,
 Redis, Sanctum, JWT e equivalentes **não** são exigidos pelo desafio e não
@@ -149,8 +158,11 @@ forma isolada.
 `[DECISÃO]` Nesta entrega, concessões de acesso são criadas exclusivamente por
 seed. Não há operação de criação, revogação ou listagem de concessões.
 
-`[ABERTO]` Quais desses conceitos são agregados, entidades ou value objects, e
-onde ficam os limites transacionais — decisão do `plan.md`.
+`[RESOLVIDO]` `Course`, `Module`, `Lesson` e `VideoAttempt` são agregados
+separados, cada um com sua própria raiz; `AccessGrant` é vínculo de autorização
+imutável e `WebhookEvent` é registro de idempotência. A coordenação entre
+agregados pertence aos casos de uso, com lock e transação explícitos. Modelagem,
+value objects e limites transacionais em `plan.md` §§5, 6, 7.4 e 8 (ABERTO-011).
 
 ---
 
@@ -173,7 +185,7 @@ O desafio exige a negação (§5.5) mas não determina se a resposta pode admiti
 o recurso existe. Ocultar a existência é decisão deste projeto: uma resposta que
 diferencia "existe mas não é seu" de "não existe" transforma a API em um oráculo
 de enumeração de identificadores alheios. A forma concreta dessa resposta — qual
-status HTTP, qual corpo — pertence ao contrato de erros do `plan.md`
+status HTTP, qual corpo — está definida no contrato de erros do `plan.md` §10
 (ABERTO-010).
 
 ### 6.2 Ordenação
@@ -225,8 +237,8 @@ aula assistível.
   processamento não representa um usuário e não é abrangido por esta regra: sua
   legitimidade é estabelecida por validação de origem (RF-WHK-001). Endpoints
   operacionais eventualmente públicos, como verificação de saúde, também ficam
-  fora do alcance desta regra. A estratégia técnica de autenticação permanece
-  aberta (ABERTO-001).
+  fora do alcance desta regra. A estratégia técnica de autenticação está definida
+  em `plan.md` §9 (ABERTO-001).
 - **RN-AUT-002** `[OBRIGATÓRIO]` O backend é a autoridade de autorização. A
   interface pode ocultar ações indisponíveis, mas isso nunca constitui proteção.
 - **RN-AUT-003** `[OBRIGATÓRIO]` Um consumidor só acessa cursos para os quais
@@ -380,8 +392,12 @@ aplicação Laravel nem do servidor Nuxt.
 Não existe operação de descarte, cancelamento ou expiração de tentativas nesta
 entrega — nenhuma delas é exigida pelo desafio. A consequência assumida é que uma
 tentativa que ficar presa em `uploading`, porque o cliente nunca solicitou a
-conclusão, bloqueia novos envios para aquela aula. É uma limitação conhecida, e o
-tratamento dela permanece em ABERTO-014.
+conclusão, bloqueia novos envios para aquela aula.
+
+A estratégia foi decidida em ABERTO-014: a recuperação se limita à tentativa
+atual, com reenvio de parte e renovação de URL. Cancelamento, descarte, expiração
+automática e retomada entre sessões ficaram documentados como limitação
+consciente do MVP, em `plan.md` §§11.2 e 19.1.
 - **RF-UPL-006** `[DECISÃO]` O tipo de conteúdo e o tamanho declarados são
   validados na abertura do envio. Rejeitar cedo evita gastar uma transferência de
   gigabytes para descobrir no fim que o arquivo não era aceitável.
@@ -403,9 +419,10 @@ tratamento dela permanece em ABERTO-014.
 - **RF-UPL-010** `[OBRIGATÓRIO]` Conclusão repetida do mesmo envio não inicia
   processamentos duplicados (RN-IDM-001).
 
-`[ABERTO]` O mecanismo concreto de transferência direta, o formato das
-credenciais ou URLs de envio, o meio de verificação do objeto e o suporte a envio
-em partes pertencem ao `plan.md`.
+`[RESOLVIDO]` Storage de objetos compatível com S3 e upload multipart direto do
+navegador, com URLs pré-assinadas por parte emitidas pelo backend; a conclusão é
+verificada no servidor antes de qualquer transição de estado. Parâmetros e fluxo
+em `plan.md` §11 (ABERTO-002); verificação em §12 (ABERTO-003).
 
 ### 9.4 Ciclo de vida do vídeo
 
@@ -436,8 +453,9 @@ Transições permitidas `[DECISÃO]`:
   produz uma nova tentativa em `pending`. `ready` não é substituível nesta
   entrega (RF-UPL-012).
 - **RN-VID-005** `[DECISÃO]` Enquanto o cliente não solicitar a conclusão, o
-  backend pode manter a tentativa em `uploading` por tempo indeterminado. Não há
-  expiração automática nesta entrega (ABERTO-014).
+  backend pode manter a tentativa em `uploading` por tempo indeterminado. A
+  ausência de expiração automática é limitação assumida do MVP, decidida em
+  ABERTO-014 e registrada em `plan.md` §19.1.
 - **RN-VID-003** `[DECISÃO]` Repetir a operação que produz uma transição já
   ocorrida é reconhecido sem erro e sem efeito adicional. Repetir uma operação
   incompatível com o estado atual é rejeitado.
@@ -481,8 +499,9 @@ Os casos possíveis na avaliação de um callback:
   registrado; por isso, sua reentrega posterior é avaliada novamente e pode ser
   aplicada como caso B.
 
-`[ABERTO]` A forma concreta dessas respostas — status HTTP e corpo — pertence ao
-contrato da API no `plan.md` (ABERTO-010).
+`[RESOLVIDO]` A resposta distingue os três desfechos por status HTTP, com corpo
+em formato de problema estruturado. Contrato completo em `plan.md` §10 e o
+mapeamento caso a caso em §13.4 (ABERTO-010).
 - **RF-VID-002** `[OBRIGATÓRIO]` O estado atual do vídeo e a informação de falha,
   quando houver, são visíveis para o produtor na interface.
 
@@ -503,8 +522,10 @@ contrato da API no `plan.md` (ABERTO-010).
   ser confiável.
 - **RF-PROC-005** `[OBRIGATÓRIO]` Não há transcodificação real de vídeo.
 
-`[ABERTO]` Tecnologia de fila, forma do worker e implementação do simulador
-pertencem ao `plan.md`.
+`[RESOLVIDO]` Fila persistida no próprio banco obrigatório, consumida por
+workers em processos separados, e um simulador isolado que representa o provedor
+externo chamando o callback real. Detalhes em `plan.md` §§13.1 e 13.2
+(ABERTO-004) e §13.3 (ABERTO-005).
 
 ### 9.6 Callback de processamento
 
@@ -537,9 +558,9 @@ carga contendo `event_id`, `video_id`, `status` e `playback_reference`.
 
 A carga oficial do callback apresentada no desafio (§7.2) traz `event_id`,
 `video_id`, `status` e `playback_reference`, sem campo para o motivo da falha.
-Este documento não altera esse payload. Se a mensagem virá de um campo adicional
-como `failure_reason` ou será derivada internamente pelo backend é decisão do
-`plan.md` (ABERTO-005).
+Este documento não altera esse payload — e a decisão de ABERTO-005 preservou essa
+carga: a mensagem é derivada internamente pelo backend, sem campo adicional. Ver
+`plan.md` §13.4.
 - **RF-WHK-008** `[OBRIGATÓRIO]` Um evento de falha pode ser simulado para
   demonstração.
 - **RF-WHK-009** `[DECISÃO]` O callback tolera novas tentativas de entrega pelo
@@ -553,8 +574,9 @@ como `failure_reason` ou será derivada internamente pelo backend é decisão do
   projeto, porque um emissor que não distingue conflito de falha temporária
   reentrega indefinidamente um evento que nunca será aceito.
 
-`[ABERTO]` O mecanismo de validação de origem — assinatura, segredo compartilhado
-ou outro — pertence ao `plan.md`.
+`[RESOLVIDO]` Assinatura HMAC sobre timestamp e corpo bruto, com segredo
+compartilhado, comparação em tempo constante e janela de validade. Mecanismo e
+headers em `plan.md` §13.4 (ABERTO-006).
 
 ---
 
@@ -590,8 +612,9 @@ ou outro — pertence ao `plan.md`.
   ou com falha não é reproduzível, e o motivo é comunicado de forma distinguível
   da negativa por autorização.
 
-`[ABERTO]` A estratégia concreta de disponibilização do conteúdo — URL assinada
-com expiração, streaming intermediado ou outra — pertence ao `plan.md`.
+`[RESOLVIDO]` Objeto privado no storage e URL de leitura pré-assinada de curta
+duração, emitida somente depois de a autorização e a disponibilidade serem
+verificadas. Estratégia e prazo em `plan.md` §14.2 (ABERTO-007).
 
 ---
 
@@ -613,9 +636,10 @@ com expiração, streaming intermediado ou outra — pertence ao `plan.md`.
 - **RF-AUT-007** `[OBRIGATÓRIO]` Entradas são validadas nas fronteiras, e erros
   não expõem informação sensível nem detalhes internos.
 
-`[ABERTO]` A estratégia de autenticação — token, cookie de sessão ou outra —, o
-tratamento de CORS e CSRF e o local de armazenamento das credenciais no cliente
-pertencem ao `plan.md`. O desafio exige apenas que sejam coerentes e documentados.
+`[RESOLVIDO]` Sessão em cookie `HttpOnly`, sem credencial acessível ao
+JavaScript, com proteção CSRF e CORS restrito a origens explícitas com
+credenciais. Configuração e justificativa em `plan.md` §9 (ABERTO-001). O desafio
+exige apenas que sejam coerentes e documentados.
 
 ---
 
@@ -658,7 +682,7 @@ após falhas de rede e callbacks que chegam repetidos ou fora do fluxo esperado.
 
 | ID | Situação | Comportamento esperado |
 | --- | --- | --- |
-| **RF-ERR-001** | Transferência interrompida | O vídeo nunca é tratado como concluído: não avança para `uploaded` nem `ready`. Sem solicitação de conclusão, a tentativa permanece em `uploading` (RN-VID-005). A interface exibe a falha da transferência e não presume sucesso. A estratégia concreta de recuperação fica em ABERTO-014 |
+| **RF-ERR-001** | Transferência interrompida | O vídeo nunca é tratado como concluído: não avança para `uploaded` nem `ready`. Sem solicitação de conclusão, a tentativa permanece em `uploading` (RN-VID-005). A interface exibe a falha da transferência e não presume sucesso. A recuperação decidida em ABERTO-014 se limita à tentativa atual |
 | **RF-ERR-002** | Conclusão sem objeto válido | A verificação falha, o vídeo não avança para `uploaded` e o produtor recebe motivo compreensível (RF-UPL-009). A tentativa passa para `failed` (RF-UPL-013) |
 | **RF-ERR-003** | Conclusão repetida | Reconhecida sem duplicar processamento (RN-IDM-001) |
 | **RF-ERR-004** | Falha de processamento | O vídeo vai a `failed` com informação compreensível; a aula não se torna publicável |
@@ -1004,27 +1028,32 @@ comprometer a entrega mínima:
 
 ---
 
-## 17. Decisões técnicas deixadas para o plan.md
+## 17. Decisões técnicas resolvidas no plan.md
 
-Nenhum item abaixo é imposto pelo desafio. Todos precisam ser decididos,
-justificados e documentados no `plan.md`.
+Nenhuma das escolhas abaixo foi imposta pelo desafio. Todas ficaram deliberadamente
+em aberto nesta especificação, foram decididas pelo projeto antes do início da
+implementação, e estão documentadas e justificadas no `plan.md`, cada uma com
+contexto, alternativas descartadas e trade-off assumido.
 
-| ID | Decisão em aberto |
-| --- | --- |
-| **ABERTO-001** | Estratégia de autenticação e de sessão entre Nuxt e Laravel, incluindo CORS, CSRF e armazenamento de credenciais no cliente |
-| **ABERTO-002** | Mecanismo de storage e forma da transferência direta, incluindo envio em partes |
-| **ABERTO-003** | Meio de verificação da existência e dos metadados do objeto enviado |
-| **ABERTO-004** | Mecanismo de fila e forma do worker |
-| **ABERTO-005** | Implementação do simulador de processamento e de seus callbacks, incluindo a origem da informação de falha: campo adicional na carga ou derivação interna (RF-WHK-011) |
-| **ABERTO-006** | Mecanismo de validação de origem do callback |
-| **ABERTO-007** | Estratégia de disponibilização do conteúdo para reprodução |
-| **ABERTO-008** | Estratégia de renderização do Nuxt e organização de estado |
-| **ABERTO-009** | Biblioteca de UI, se houver |
-| **ABERTO-010** | Formato dos contratos da API, paginação e formato dos erros |
-| **ABERTO-011** | Modelagem em agregados, entidades e value objects; limites transacionais |
-| **ABERTO-012** | Composição do ambiente containerizado e serviços que o integram |
-| **ABERTO-013** | Ferramentas de teste, lint e análise estática de cada camada |
-| **ABERTO-014** | Estratégia de retomada, cancelamento, descarte e expiração de tentativas de upload abandonadas, incluindo o desbloqueio de uma aula presa em `uploading` — documentada mesmo se não implementada por inteiro |
+Os identificadores são estáveis: continuam sendo a chave de rastreabilidade entre
+esta especificação e o plano, e não são renomeados nem renumerados.
+
+| ID | Decisão técnica | Estado | Resolvida em | Escolha resumida |
+| --- | --- | --- | --- | --- |
+| **ABERTO-001** | Autenticação, sessão, CORS, CSRF e armazenamento de credenciais no cliente | `[RESOLVIDO]` | plan §9 | Sanctum em modo SPA, sessão em MySQL, cookie `HttpOnly`, origens explícitas com credenciais |
+| **ABERTO-002** | Mecanismo de storage e forma da transferência direta, incluindo envio em partes | `[RESOLVIDO]` | plan §11 | RustFS S3-compatible, multipart de 64 MiB, 3 concorrentes, URL de parte de 15 minutos renovável |
+| **ABERTO-003** | Verificação da existência e dos metadados do objeto enviado | `[RESOLVIDO]` | plan §12 | `CompleteMultipartUpload` e `HeadObject` sob lock atômico, validando chave, tamanho, tipo e metadados da tentativa |
+| **ABERTO-004** | Mecanismo de fila e forma do worker | `[RESOLVIDO]` | plan §§13.1 e 13.2 | Database Queue sobre MySQL, workers separados, despacho após o commit, job de processamento retomável |
+| **ABERTO-005** | Simulador de processamento, seus callbacks e a origem da informação de falha | `[RESOLVIDO]` | plan §§13.3 e 13.4 | `simulator-worker` isolado chamando o webhook real, sucesso determinístico e falha por comando Artisan; mensagem derivada internamente, carga oficial preservada |
+| **ABERTO-006** | Mecanismo de validação de origem do callback | `[RESOLVIDO]` | plan §13.4 | HMAC-SHA256 sobre timestamp e corpo bruto, comparação em tempo constante, janela de 5 minutos |
+| **ABERTO-007** | Estratégia de disponibilização do conteúdo para reprodução | `[RESOLVIDO]` | plan §14.2 | Objeto privado e URL `GET` pré-assinada de 5 minutos, emitida após a autorização |
+| **ABERTO-008** | Estratégia de renderização do Nuxt e organização de estado | `[RESOLVIDO]` | plan §§15.1 e 15.2 | SPA com `ssr: false`, `useState` apenas para sessão e usuário, polling enquanto o estado é transitório |
+| **ABERTO-009** | Biblioteca de UI, se houver | `[RESOLVIDO]` | plan §15.5 | Nuxt UI v4 com Tailwind CSS 4, como única biblioteca principal |
+| **ABERTO-010** | Formato dos contratos da API, paginação e formato dos erros | `[RESOLVIDO]` | plan §10 | Envelope `data`, `meta` e `links`, paginação 15 por padrão e 50 no máximo, `application/problem+json`, OpenAPI 3.1 |
+| **ABERTO-011** | Modelagem em agregados, entidades e value objects; limites transacionais | `[RESOLVIDO]` | plan §§5, 6, 7.4 e 8 | Quatro camadas e três áreas; `Course`, `Module`, `Lesson` e `VideoAttempt` como agregados separados, coordenados por caso de uso com lock explícito |
+| **ABERTO-012** | Composição do ambiente containerizado e serviços que o integram | `[RESOLVIDO]` | plan §16 | Docker Compose com oito serviços, healthchecks, volumes nomeados, imagens fixadas, sem Redis |
+| **ABERTO-013** | Ferramentas de teste, lint e análise estática de cada camada | `[RESOLVIDO]` | plan §17 | PHPUnit, Pint, PHPStan/Larastan, Vitest, Nuxt e Vue Test Utils, ESLint, typecheck, Playwright |
+| **ABERTO-014** | Retomada, cancelamento, descarte e expiração de tentativas de upload abandonadas | `[RESOLVIDO]` | plan §§11.2 e 19.1 | Recuperação limitada à tentativa atual, com reenvio de parte e renovação de URL; cancelamento, descarte, expiração e retomada entre sessões documentados como limitação consciente do MVP |
 
 ---
 
