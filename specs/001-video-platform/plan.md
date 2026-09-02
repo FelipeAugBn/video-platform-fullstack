@@ -1,7 +1,7 @@
 # Plano Técnico e Arquitetural — Plataforma de Conteúdo em Vídeo
 
 **Feature:** 001-video-platform
-**Estado:** aprovado. Liberado para decomposição em `tasks.md`. Alteração
+**Estado:** aprovado. Liberado para implementação conforme `tasks.md`. Alteração
 arquitetural posterior continua exigindo revisão e aprovação antes de ser
 implementada
 **Escopo deste documento:** como a solução atenderá à `spec.md` e ao desafio

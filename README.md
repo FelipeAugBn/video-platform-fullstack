@@ -19,8 +19,8 @@ Backend em Laravel 13, frontend em Nuxt 4, integracao real entre as duas camadas
 
 O projeto esta em desenvolvimento. Este README cresce junto com a implementacao.
 
-- [ ] Configuracao inicial do repositorio
-- [ ] Especificacoes versionadas
+- [x] Configuracao inicial do repositorio
+- [x] Especificacoes versionadas
 - [ ] Ambiente containerizado
 - [ ] Backend: dominio, API e processamento de video
 - [ ] Frontend: jornadas do produtor e do consumidor
