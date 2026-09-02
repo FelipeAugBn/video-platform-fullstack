@@ -96,9 +96,11 @@ docker-compose.override.yml
 Thumbs.db
 
 # ------------------------------------------------------------------
-# Ferramental de assistente local — nao faz parte da entrega
+# Configuracoes locais — nao fazem parte da entrega
 # ------------------------------------------------------------------
 CLAUDE.md
 CLAUDE.local.md
+AGENTS.md
+AGENTS.override.md
 .claude/
 .codex/
