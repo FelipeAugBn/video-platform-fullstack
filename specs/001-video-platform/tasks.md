@@ -261,7 +261,7 @@ neste documento começa antes de ele ser validado e consolidado.
   - **Depende de:** T003.
   - **Critério de conclusão:** estrutura criada e exceção comprovada.
 
-- [ ] **T005** Imagem base do backend
+- [x] **T005** Imagem base do backend
   - **Objetivo:** uma imagem PHP 8.4 que servirá a `api`, `worker`,
     `simulator-worker` e `setup`, diferindo apenas no comando.
   - **Arquivos previstos:** `docker/backend/Dockerfile`,
