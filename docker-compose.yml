@@ -1,0 +1,86 @@
+# Ambiente local do projeto.
+#
+# Sem a chave `version`: ela e obsoleta no Compose atual e so gera aviso.
+#
+# Cada imagem e referenciada por tag exata e digest. A tag descreve a intencao e
+# o digest garante o conteudo, porque tag de registry e mutavel e digest nao. E
+# o que sustenta a promessa de ambiente reproduzivel (RNF-020).
+
+name: video-platform
+
+services:
+  # MySQL 8.4 LTS. Guarda os dados do dominio e tambem sessao e fila — decisao
+  # do projeto para nao introduzir Redis por um volume que nao o justifica
+  # (plan §7).
+  mysql:
+    image: mysql:8.4.11@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb
+
+    # O nome do container nao e fixado: fixa-lo quebraria a escala do servico.
+    # O Compose o deriva do nome do projeto — `video-platform`, declarado
+    # acima — mais o nome do servico.
+    #
+    # Como esse nome de projeto e fixo, uma segunda copia do repositorio nao
+    # sobe em paralelo por padrao: reaproveitaria os mesmos containers, rede e
+    # volume. Para isso e preciso outro nome de projeto, via
+    # `docker compose -p <nome>` ou `COMPOSE_PROJECT_NAME`; com ele, containers,
+    # rede e volume passam todos a ter nomes proprios, e os dados ficam
+    # separados.
+
+    restart: unless-stopped
+
+    # Nenhum segredo mora aqui. `:?` faz o Compose abortar com mensagem clara
+    # quando a variavel falta, em vez de subir o banco com um valor padrao
+    # silencioso — senha padrao em arquivo versionado e exatamente o que
+    # RNF-010 proibe.
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?defina DB_ROOT_PASSWORD no .env da raiz}
+      MYSQL_DATABASE: ${DB_DATABASE:?defina DB_DATABASE no .env da raiz}
+      MYSQL_USER: ${DB_USERNAME:?defina DB_USERNAME no .env da raiz}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env da raiz}
+      # Nao e uma variavel da imagem oficial: quem a consome e o script de
+      # inicializacao, que cria o segundo schema.
+      MYSQL_TEST_DATABASE: ${DB_TEST_DATABASE:?defina DB_TEST_DATABASE no .env da raiz}
+
+    volumes:
+      # Volume nomeado, nao bind mount: os dados sobrevivem a recriacao do
+      # container e ficam fora da arvore do repositorio.
+      - mysql-dados:/var/lib/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+      # A imagem executa o que estiver aqui apenas na primeira inicializacao do
+      # volume, quando o datadir ainda esta vazio.
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+
+    networks:
+      - interna
+
+    # Sem `ports`: nada e publicado no host nesta etapa. Quem precisa do banco
+    # esta na mesma rede e o alcanca pelo nome do servico. Publicar a porta so
+    # ampliaria a superficie exposta sem necessidade.
+
+    # `mysqladmin ping` por TCP em 127.0.0.1, e nao pelo socket Unix: o socket
+    # responde antes de a porta aceitar conexao, e e pela porta que os demais
+    # servicos vao chegar. Testar o socket declararia o banco pronto cedo
+    # demais.
+    #
+    # A senha vem de `MYSQL_PWD`, lida do ambiente do proprio container. O `$$`
+    # impede o Compose de interpolar na leitura do YAML, deixando a expansao
+    # para o shell de dentro. Fora da variavel de ambiente, a senha apareceria
+    # nos argumentos do processo, visivel a qualquer `ps` no container.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysqladmin ping --protocol=TCP --host=127.0.0.1 --user=root --silent
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      # A primeira subida inicializa o datadir e cria os bancos, o que leva bem
+      # mais tempo que as seguintes. Durante este periodo a falha nao conta
+      # para `retries` nem marca o servico como doente.
+      start_period: 60s
+
+volumes:
+  mysql-dados:
+
+networks:
+  interna:
+    driver: bridge

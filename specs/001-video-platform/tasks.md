@@ -301,7 +301,7 @@ neste documento começa antes de ele ser validado e consolidado.
   - **Critério de conclusão:** Laravel 13 instalado sobre PHP 8.4, versão
     registrada.
 
-- [ ] **T007** Base do Compose com MySQL
+- [x] **T007** Base do Compose com MySQL
   - **Objetivo:** o primeiro `docker-compose.yml`, com o banco saudável — a partir
     daqui os comandos passam a usar `docker compose`.
   - **Arquivos previstos:** `docker-compose.yml`, `docker/mysql/my.cnf`.
