@@ -249,19 +249,24 @@ domínio e são provadas pelos testes das fases seguintes.
 
 ---
 
-## 10. O que sobreviverá deste experimento
+## 10. O que sobreviveu deste experimento
 
-Nada do que está descrito nesta seção aconteceu ainda. Neste momento existe
-apenas este relatório; o andaime do experimento continua no lugar. A
-consolidação é trabalho de **T003**.
+A consolidação foi realizada em **T003**. O estado atual:
 
-Na T003, o arquivo de ambiente isolado e os três scripts de validação **serão
-removidos**, e o papel deles passará para os testes de integração do upload.
+**O andaime foi removido.** O arquivo de ambiente isolado e os três scripts de
+validação não existem mais; o papel deles passa para os testes de integração do
+upload.
 
-Duas coisas **serão promovidas** para o ambiente definitivo, também na T003: a
-**política de CORS**, que se provou suficiente sem configuração adicional no
-serviço, e o **script de criação do bucket**, que passará a ser executado na
-inicialização.
+**Duas coisas foram promovidas** para `docker/rustfs/`: a **política de CORS**,
+que se provou suficiente sem configuração adicional no serviço, e o **script de
+criação do bucket**, que aplica essa política e confere o resultado. A política
+promovida é idêntica, byte a byte, à que este relatório documenta.
 
-Este relatório é o que permanece depois disso — a evidência de que a decisão de
-maior risco do plano foi verificada, e não presumida.
+O script de bootstrap usa o SDK S3 para PHP, e não uma ferramenta de linha de
+comando, porque quem vai executá-lo é o serviço de inicialização do ambiente,
+que roda dentro da imagem do backend — a mesma biblioteca que o adapter de
+storage da aplicação utiliza. **Ele ainda não foi executado contra o storage:**
+isso depende da aplicação PHP existir, e acontece em **T011**.
+
+**Este relatório permaneceu** — a evidência de que a decisão de maior risco do
+plano foi verificada, e não presumida.

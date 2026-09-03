@@ -213,7 +213,7 @@ neste documento começa antes de ele ser validado e consolidado.
   - **Depende de:** T001.
   - **Critério de conclusão:** relatório completo e versionado.
 
-- [ ] **T003** Consolidar a configuração do spike
+- [x] **T003** Consolidar a configuração do spike
   - **Objetivo:** promover o que será reaproveitado e remover apenas o andaime
     descartável.
   - **Arquivos previstos:** `docker/rustfs/cors.json`,
@@ -283,8 +283,20 @@ neste documento começa antes de ele ser validado e consolidado.
     volume. Confirmar a versão do Laravel e a versão de PHP que ela exige — se
     houver divergência com o assumido no plano, **parar e reportar** em vez de
     ajustar por conta própria.
+
+    Instalar também `aws/aws-sdk-php`, fixando a restrição de versão no
+    `composer.json`; o `composer.lock` registra a versão efetivamente resolvida.
+    Não é serviço novo nem decisão nova: é a biblioteca cliente de S3 já
+    pressuposta pelo storage do plano, e ela é usada em **dois** pontos — o
+    script de bootstrap do bucket, promovido em T003 e executado pelo `setup` em
+    T011, e o adapter `ObjectStorage` em T042. Instalá-la aqui é o que torna a
+    ordem das tarefas executável: o `setup` roda dentro desta imagem e não pode
+    depender de nenhuma ferramenta externa.
   - **Testes/validação:**
-    `docker run --rm -v "$PWD/backend":/app -w /app video-platform-backend:dev php artisan --version`.
+    `docker run --rm -v "$PWD/backend":/app -w /app video-platform-backend:dev php artisan --version`
+    e
+    `docker run --rm -v "$PWD/backend":/app -w /app video-platform-backend:dev composer show aws/aws-sdk-php`,
+    que precisa listar a versão instalada.
   - **Depende de:** T005.
   - **Critério de conclusão:** Laravel 13 instalado sobre PHP 8.4, versão
     registrada.
