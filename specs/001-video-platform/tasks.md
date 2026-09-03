@@ -68,7 +68,7 @@ pendência, nomeando quem a executa.
 O `plan.md` §19.1 registra o RustFS como a decisão de maior risco técnico. Nada
 neste documento começa antes de ele ser validado e consolidado.
 
-- [ ] **T001** Spike de validação do RustFS
+- [x] **T001** Spike de validação do RustFS
   - **Objetivo:** provar, com evidência reproduzível, que o RustFS entrega as
     quatro capacidades das quais o plano depende — multipart, CORS, `HeadObject`
     e URLs pré-assinadas — antes que qualquer código as assuma.
