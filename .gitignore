@@ -76,6 +76,7 @@ dumps/
 *.mkv
 !backend/tests/Fixtures/**
 !frontend/tests/fixtures/**
+!e2e/fixtures/**
 
 # ------------------------------------------------------------------
 # Docker — dados persistidos em volume local, se houver bind mount

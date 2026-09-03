@@ -243,7 +243,7 @@ neste documento começa antes de ele ser validado e consolidado.
 
 ## Fase 1 — Fundação containerizada
 
-- [ ] **T004** Preparação comum do repositório
+- [x] **T004** Preparação comum do repositório
   - **Objetivo:** diretórios das duas aplicações e regras de ignore ajustadas,
     incluindo a exceção que o fixture do E2E vai precisar.
   - **Arquivos previstos:** `.gitignore`, `backend/.gitkeep`,
