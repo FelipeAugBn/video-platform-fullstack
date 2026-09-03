@@ -24,14 +24,6 @@ backend/public/hot
 backend/public/storage
 backend/storage/*.key
 backend/storage/pail/
-backend/storage/app/private/
-backend/storage/app/public/
-backend/storage/framework/cache/data/
-backend/storage/framework/sessions/
-backend/storage/framework/testing/
-backend/storage/framework/views/
-backend/storage/logs/
-backend/bootstrap/cache/
 backend/.phpunit.result.cache
 backend/.phpunit.cache/
 backend/.php-cs-fixer.cache

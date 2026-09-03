@@ -275,7 +275,7 @@ neste documento começa antes de ele ser validado e consolidado.
   - **Depende de:** T004.
   - **Critério de conclusão:** imagem construída e versão confirmada.
 
-- [ ] **T006** Scaffolding do Laravel 13
+- [x] **T006** Scaffolding do Laravel 13
   - **Objetivo:** aplicação Laravel instalada, ainda sem regra de negócio.
   - **Arquivos previstos:** árvore de `backend/`, `backend/composer.json`.
   - **Requisitos:** stack obrigatória do desafio §2; plan §2.
