@@ -192,7 +192,7 @@ neste documento começa antes de ele ser validado e consolidado.
     implementação para aqui** e volta para revisão arquitetural. Substituir o
     RustFS por outro storage exige nova decisão aprovada.
 
-- [ ] **T002** Relatório versionado do spike
+- [x] **T002** Relatório versionado do spike
   - **Objetivo:** deixar o resultado auditável depois que o andaime for removido.
   - **Arquivos previstos:** `docs/spikes/rustfs.md`.
   - **Requisitos:** RNF-011, RNF-012; plan §19.1.
