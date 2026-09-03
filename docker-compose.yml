@@ -8,6 +8,28 @@
 
 name: video-platform
 
+# Contrato de configuracao do storage, em um so lugar.
+#
+# Nao e o ambiente do processo do RustFS: ele nao conhece nenhuma destas
+# variaveis e receberia lixo se elas fossem injetadas nele. Quem as consome sao
+# a aplicacao e o `setup` — o adapter de storage e o script que cria o bucket —,
+# nas tarefas seguintes, com `<<: *storage-environment`.
+#
+# Declarar aqui evita que cada servico repita a lista e comece a divergir.
+#
+# Os dois enderecos sao variaveis separadas de proposito (plan §16.3): o interno
+# serve as chamadas dentro da rede do Compose, e o publico e o que aparece nas
+# URLs assinadas entregues ao navegador. Assinar com o host errado produz uma
+# URL que a API considera valida e o navegador nao alcanca — a separacao torna
+# essa confusao um erro visivel, nao um acerto por coincidencia.
+x-storage-environment: &storage-environment
+  STORAGE_ENDPOINT_INTERNAL: ${STORAGE_ENDPOINT_INTERNAL:?defina STORAGE_ENDPOINT_INTERNAL no .env da raiz}
+  STORAGE_ENDPOINT_PUBLIC: ${STORAGE_ENDPOINT_PUBLIC:?defina STORAGE_ENDPOINT_PUBLIC no .env da raiz}
+  STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?defina STORAGE_ACCESS_KEY no .env da raiz}
+  STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:?defina STORAGE_SECRET_KEY no .env da raiz}
+  STORAGE_REGION: ${STORAGE_REGION:?defina STORAGE_REGION no .env da raiz}
+  STORAGE_BUCKET: ${STORAGE_BUCKET:?defina STORAGE_BUCKET no .env da raiz}
+
 services:
   # MySQL 8.4 LTS. Guarda os dados do dominio e tambem sessao e fila — decisao
   # do projeto para nao introduzir Redis por um volume que nao o justifica
@@ -78,8 +100,61 @@ services:
       # para `retries` nem marca o servico como doente.
       start_period: 60s
 
+  # Storage S3-compatible, validado em spike antes de entrar aqui: imagem, porta
+  # publicada, verificacao de saude e nivel de log sao os mesmos que passaram
+  # naquela validacao (docs/spikes/rustfs.md).
+  #
+  # Sobe e fica saudavel, nada alem disso. Criar o bucket e aplicar a politica
+  # de CORS pertence ao servico `setup`, que roda uma vez antes da aplicacao.
+  # Terminar esta etapa sem bucket e o resultado esperado, nao uma pendencia.
+  rustfs:
+    image: rustfs/rustfs:1.0.0-rc.5@sha256:c36b3efea3d1e503f1a2581abd0e7611e0e5820dd30e1850a52384b3fc52bda4
+
+    restart: unless-stopped
+
+    # Somente o que o processo do RustFS entende. As credenciais vem das mesmas
+    # variaveis que a aplicacao usara para assinar, entao nao ha como o storage
+    # e o cliente divergirem por configuracao duplicada.
+    environment:
+      RUSTFS_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?defina STORAGE_ACCESS_KEY no .env da raiz}
+      RUSTFS_SECRET_KEY: ${STORAGE_SECRET_KEY:?defina STORAGE_SECRET_KEY no .env da raiz}
+      RUSTFS_VOLUMES: /data
+      # `warn` mantem o log legivel durante a avaliacao: em `info` o storage
+      # narra cada requisicao e afoga a saida dos demais servicos.
+      RUSTFS_OBS_LOGGER_LEVEL: warn
+
+    volumes:
+      # Volume nomeado. Os objetos sobrevivem a recriacao do container e ficam
+      # fora da arvore do repositorio.
+      - rustfs-dados:/data
+
+    networks:
+      - interna
+
+    ports:
+      # Endpoint publico do S3, e nada mais — o console administrativo nao e
+      # exposto. A porta do host, 19000, e deliberadamente diferente da interna,
+      # 9000, para que trocar um endereco pelo outro falhe de imediato.
+      #
+      # O bind em 127.0.0.1 restringe o acesso a maquina local: sem ele o Docker
+      # publicaria em todas as interfaces, deixando o storage alcancavel pela
+      # rede em que o host estiver.
+      - "127.0.0.1:19000:9000"
+
+    # A verificacao aponta para 127.0.0.1:9000, de dentro do proprio container.
+    # Usar o endereco publico aqui testaria o encaminhamento de porta do host em
+    # vez da saude do processo, e passaria a depender de algo que nao e o
+    # servico.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:9000/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
 volumes:
   mysql-dados:
+  rustfs-dados:
 
 networks:
   interna:

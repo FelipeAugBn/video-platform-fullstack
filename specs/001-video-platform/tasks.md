@@ -315,7 +315,7 @@ neste documento começa antes de ele ser validado e consolidado.
   - **Depende de:** T006.
   - **Critério de conclusão:** serviço saudável e volume preservando dados.
 
-- [ ] **T008** Serviço `rustfs`
+- [x] **T008** Serviço `rustfs`
   - **Objetivo:** o storage validado no spike, integrado ao Compose e saudável.
   - **Arquivos previstos:** `docker-compose.yml`, `docker/rustfs/`.
   - **Requisitos:** ABERTO-002, ABERTO-012; plan §16.
