@@ -5,9 +5,14 @@
 # Nao e um servico: roda, termina e sai. O Compose so libera `api` — e, atras
 # dele, `web` — depois que este script encerra com codigo zero (plan §16.2).
 #
-# Ordem: storage primeiro, banco depois — migrations e, em seguida, os dados de
-# avaliacao. Storage e banco sao independentes, e falhar cedo no storage evita
-# migrar um banco que a aplicacao nao conseguiria usar de qualquer forma.
+# Ordem: chave de criptografia primeiro, dependencias depois, storage em
+# seguida, banco por ultimo — migrations e, entao, os dados de avaliacao.
+#
+# A chave vem antes de tudo, inclusive da conferencia do autoload, porque a
+# validacao dela usa apenas o binario do interpretador e nao depende de nenhuma
+# biblioteca instalada. Sem chave a aplicacao nao autentica ninguem: preparar
+# bucket e banco para um ambiente que nao vai subir e trabalho jogado fora, e o
+# erro apareceria longe da causa.
 #
 # Idempotente por construcao: bucket ja existente e aceito, a politica de CORS e
 # reaplicada e conferida, e o migrador executa apenas o que ainda falta. Nenhuma
@@ -38,7 +43,45 @@ erro() {
 }
 
 # ---------------------------------------------------------------------------
-# 1. Dependencias da aplicacao.
+# 1. Chave de criptografia da aplicacao.
+#
+# Ela assina o cookie de sessao e cifra o que ele guarda. Sem chave valida nao ha
+# autenticacao, e a falha apareceria adiante como sessao que nao persiste — longe
+# da causa e dificil de diagnosticar.
+#
+# A conferencia e de formato, nao de valor: prefixo `base64:` e exatamente 32
+# bytes depois de decodificar, que e o que o framework espera. Uma chave truncada
+# ou com o prefixo errado e recusada aqui, antes de tocar em banco ou storage.
+#
+# O valor nunca e impresso, nem em erro.
+# ---------------------------------------------------------------------------
+[ -n "${APP_KEY:-}" ] \
+  || erro "APP_KEY ausente ou vazia.
+  Ela e gerada automaticamente pela subida oficial do ambiente:
+
+      make up
+
+  Uma execucao direta de 'docker compose up' com a chave vazia para aqui de
+  proposito, em vez de subir uma aplicacao que nao consegue autenticar."
+
+php -r '
+    $chave = getenv("APP_KEY");
+    if (! str_starts_with($chave, "base64:")) {
+        fwrite(STDERR, "APP_KEY sem o prefixo base64: esperado pelo framework.\n");
+        exit(1);
+    }
+    $bruta = base64_decode(substr($chave, 7), true);
+    if ($bruta === false || strlen($bruta) !== 32) {
+        fwrite(STDERR, "APP_KEY nao representa 32 bytes validos.\n");
+        exit(1);
+    }
+' || erro "APP_KEY invalida. Remova a linha do .env da raiz e rode 'make up'
+  novamente para gerar uma chave nova. O valor atual nao e exibido de proposito."
+
+echo "setup: chave de criptografia presente e no formato esperado"
+
+# ---------------------------------------------------------------------------
+# 2. Dependencias da aplicacao.
 #
 # Elas chegam pelo bind mount, nao pela imagem. Sem esta conferencia a ausencia
 # apareceria adiante como classe nao encontrada, no bootstrap do storage ou no
@@ -52,7 +95,7 @@ erro() {
 echo "setup: autoload do Composer disponivel em $AUTOLOAD"
 
 # ---------------------------------------------------------------------------
-# 2. Storage: bucket e politica de CORS.
+# 3. Storage: bucket e politica de CORS.
 #
 # A logica vive no script promovido junto do storage, que ja trata bucket
 # ausente e bucket existente, aplica e rele a politica, e sanitiza credencial em
@@ -66,7 +109,7 @@ echo "setup: autoload do Composer disponivel em $AUTOLOAD"
 APP_ROOT="$APP_ROOT" "$BOOTSTRAP_STORAGE"
 
 # ---------------------------------------------------------------------------
-# 3. Banco: migrations pendentes.
+# 4. Banco: migrations pendentes.
 #
 # `--force` porque, sem arquivo de ambiente, o ambiente declarado e o de
 # producao e o migrador pede confirmacao interativa nele; aqui nao ha terminal
@@ -78,7 +121,7 @@ APP_ROOT="$APP_ROOT" "$BOOTSTRAP_STORAGE"
 php "$APP_ROOT/artisan" migrate --force --no-interaction
 
 # ---------------------------------------------------------------------------
-# 4. Dados de avaliacao.
+# 5. Dados de avaliacao.
 #
 # As contas de demonstracao, o curso da jornada e o cenario dedicado de falha.
 # O seeder verifica cada registro pela chave primaria fixa e insere apenas o que

@@ -12,9 +12,14 @@
 #
 #   1. conferir o arquivo de ambiente
 #   2. construir ou atualizar as imagens
-#   3. instalar as dependencias das aplicacoes, com essas imagens
-#   4. subir os servicos
-#   5. mostrar o estado
+#   3. garantir a chave de criptografia da aplicacao
+#   4. instalar as dependencias das aplicacoes, com essas imagens
+#   5. subir os servicos
+#   6. mostrar o estado
+#
+# A sequencia esta declarada nas dependencias entre os alvos, e nao apenas na
+# ordem em que eles aparecem no arquivo. E o que a mantem valida sob execucao
+# paralela: cada etapa lista a anterior como pre-requisito.
 #
 # Trocar a 2 pela 3 e o erro que passa despercebido: as dependencias seriam
 # instaladas pela imagem anterior. Um interpretador novo declarado no Dockerfile
@@ -55,8 +60,10 @@ CANONICAS := api frontend
 AUTOLOAD := backend/vendor/autoload.php
 MODULOS := frontend/node_modules/.package-lock.json
 
+CHAVE := scripts/ensure-app-key.sh
+
 .DEFAULT_GOAL := up
-.PHONY: up dependencias imagens ambiente
+.PHONY: up dependencias imagens ambiente chave
 
 # Alvo oficial da entrega. As etapas 1 a 3 chegam pela cadeia de pre-requisitos.
 up: dependencias
@@ -92,7 +99,25 @@ ambiente:
 imagens: | ambiente
 	$(COMPOSE) build $(CANONICAS)
 
-# Etapa 3. Instalacao das dependencias, com as imagens recem-construidas.
+# Etapa 3. Chave de criptografia da aplicacao.
+#
+# Ela assina o cookie de sessao e cifra o que ele guarda: sem chave nao ha
+# autenticacao. A variavel **esta** no arquivo de exemplo; o que fica de fora e o
+# valor, que nasce vazio e e preenchido localmente — uma chave versionada seria a
+# mesma em toda copia do repositorio.
+#
+# O script gera uma so quando falta, nunca substitui a existente e nunca imprime
+# o valor. Depende de `imagens` porque a geracao acontece dentro da imagem do
+# backend: o host desta entrega nao tem PHP.
+#
+# **A ordem e garantida pelo grafo, e nao pela escrita das linhas.** Os dois
+# marcos de instalacao declaram `chave` como pre-requisito de ordem, entao nem
+# mesmo `make -j` consegue instalar dependencia antes de a chave existir — e,
+# como `up` depende de `dependencias`, nenhum servico sobe antes dela.
+chave: | imagens
+	@$(CHAVE) $(AMBIENTE)
+
+# Etapa 4. Instalacao das dependencias, com as imagens recem-construidas.
 #
 # O Dockerfile e pre-requisito de verdade, e nao apenas de ordem: ele carrega a
 # versao do interpretador, e trocar de versao exige resolver as dependencias
@@ -102,7 +127,7 @@ imagens: | ambiente
 # `--no-deps` e obrigatorio: sem ele o Compose subiria a preparacao do ambiente,
 # que exige exatamente o autoload que ainda nao existe. Instalar em separado
 # rompe esse ciclo.
-$(AUTOLOAD): backend/composer.json backend/composer.lock docker/backend/Dockerfile | imagens
+$(AUTOLOAD): backend/composer.json backend/composer.lock docker/backend/Dockerfile | chave
 	$(COMPOSE) run --rm --no-deps --user $(USUARIO) \
 	  --env COMPOSER_HOME=/tmp/composer \
 	  api composer install --no-interaction --prefer-dist
@@ -110,7 +135,7 @@ $(AUTOLOAD): backend/composer.json backend/composer.lock docker/backend/Dockerfi
 
 # `npm ci` instala exatamente o que o arquivo de trava descreve, e falha quando
 # ele diverge do manifesto — e o que mantem a instalacao reproduzivel.
-$(MODULOS): frontend/package.json frontend/package-lock.json docker/frontend/Dockerfile | imagens
+$(MODULOS): frontend/package.json frontend/package-lock.json docker/frontend/Dockerfile | chave
 	$(COMPOSE) run --rm --no-deps --user $(USUARIO) \
 	  --env HOME=/tmp \
 	  frontend npm ci

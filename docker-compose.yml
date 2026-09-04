@@ -82,6 +82,44 @@ x-backend-environment: &backend-environment
   # no padrao do framework, porque este e o unico ponto em que os quatro
   # processos PHP combinam sobre onde o trabalho fica guardado.
   QUEUE_CONNECTION: database
+  # Chave de criptografia, gerada localmente na primeira subida e nunca
+  # versionada (plan §9.1). O padrao vazio existe para o Compose conseguir ler o
+  # arquivo antes de a chave ser gerada; quem recusa uma chave ausente e a
+  # preparacao do ambiente, com mensagem explicita, em vez de a aplicacao falhar
+  # adiante sem causa obvia.
+  APP_KEY: ${APP_KEY:-}
+  # Mensagens de validacao e de autenticacao em portugues, a partir dos arquivos
+  # de traducao do proprio projeto — sem dependencia acrescentada so para isto.
+  APP_LOCALE: pt_BR
+  APP_FALLBACK_LOCALE: pt_BR
+  # Sessao no MySQL, pelo mesmo motivo da fila: o banco ja e obrigatorio e o
+  # volume nao justifica um servico a mais (plan §9.1).
+  SESSION_DRIVER: database
+  SESSION_TABLE: sessions
+  # Cookie host-only: sem dominio declarado, o navegador o devolve apenas ao host
+  # exato que o emitiu. Cookies **nao sao separados por porta**, entao o cookie
+  # emitido em `localhost` serve ao frontend em `:3000` e a API em `:8080` — e o
+  # que permite a sessao atravessar as duas portas em desenvolvimento sem abrir o
+  # cookie para subdominios.
+  SESSION_DOMAIN: ${SESSION_DOMAIN:-null}
+  # O cookie so viaja em HTTPS quando ha HTTPS. O ambiente local e HTTP, entao o
+  # padrao e `false`: marcar como seguro faria o navegador descartar o cookie, e
+  # a sessao nunca persistiria. **Numa publicacao sob HTTPS este valor precisa
+  # ser `true`** — por isso ele vem do ambiente, e nao fixo aqui.
+  SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE:-false}
+  # Inacessivel ao JavaScript: e a credencial de autenticacao, e essa e a unica
+  # defesa possivel contra um script que consiga rodar na pagina.
+  SESSION_HTTP_ONLY: ${SESSION_HTTP_ONLY:-true}
+  # `lax` acompanha o fluxo first-party: o cookie viaja na navegacao normal e nao
+  # em requisicao partida de outro site, que e o vetor do CSRF.
+  SESSION_SAME_SITE: ${SESSION_SAME_SITE:-lax}
+  # Hosts tratados como first-party pelo Sanctum, que por isso autenticam por
+  # sessao em vez de token (plan §9.2). Lista explicita, nunca curinga.
+  SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS:-localhost:3000}
+  # Origens completas — esquema, host e porta — autorizadas a ler as respostas.
+  # Com credenciais habilitadas o navegador recusa curinga, e o curinga abriria a
+  # API a qualquer origem.
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
 
 services:
   # MySQL 8.4 LTS. Guarda os dados do dominio e tambem sessao e fila — decisao
