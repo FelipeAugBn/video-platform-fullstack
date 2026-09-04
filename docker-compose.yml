@@ -152,6 +152,168 @@ services:
       retries: 20
       start_period: 5s
 
+  # A aplicacao Laravel rodando em PHP-FPM.
+  #
+  # Este container fala FastCGI, nao HTTP. Quem atende o navegador e o `web`,
+  # logo abaixo. A separacao nao e detalhe de arrumacao: uma verificacao HTTP
+  # apontada para ca falharia sempre (plan §16.2).
+  api:
+    # O contexto de build e o diretorio que contem o Dockerfile e os arquivos
+    # que ele copia — configuracao do PHP e entrypoint. Nada de `backend/` entra
+    # na imagem; o codigo chega por bind mount.
+    build:
+      context: ./docker/backend
+
+    # Nome local fixo. `worker`, `simulator-worker` e `setup` vao apontar para
+    # esta mesma imagem nas tarefas seguintes, em vez de reconstrui-la: sao
+    # ciclos de vida diferentes da mesma aplicacao, e o que muda entre eles e o
+    # comando, nunca a imagem (plan §16.1).
+    image: video-platform-backend:dev
+
+    # O nome do container nao e fixado, pelo mesmo motivo ja registrado no banco.
+
+    restart: unless-stopped
+
+    # O log da aplicacao sai pela saida de erro do container e aparece em
+    # `docker compose logs api`. Sem isto o Laravel tentaria criar
+    # `storage/logs/laravel.log` na arvore do host, onde o processo nao escreve.
+    # A configuracao de log da aplicacao nao muda: ela ja le este canal do
+    # ambiente.
+    environment:
+      LOG_CHANNEL: stderr
+
+    volumes:
+      # O codigo continua chegando por bind mount: edicao no host aparece no
+      # container sem reconstruir a imagem. Segue em leitura e escrita porque
+      # comandos de desenvolvimento executados aqui — a geracao do autoload, por
+      # exemplo — atualizam arquivos gerados dentro da arvore.
+      #
+      # O que a aplicacao escreve em tempo de execucao nao passa por este ponto:
+      # as views compiladas ficam no `tmpfs` declarado logo abaixo e o log vai
+      # para a saida de erro. Com isso o servico nao depende de permissao de
+      # escrita na arvore do host, cujos arquivos pertencem a outro usuario, nem
+      # de cache deixado por uma execucao anterior.
+      - ./backend:/app
+
+    # Diretorio das views compiladas em memoria — e somente ele.
+    #
+    # O PHP-FPM roda como `www-data`, dono diferente de quem criou os arquivos no
+    # host. Sem este ponto de montagem, compilar uma view falharia por permissao
+    # e a aplicacao so responderia enquanto sobrasse cache de uma execucao
+    # anterior; foi exatamente o que mascarou a primeira verificacao desta etapa.
+    #
+    # `uid` e `gid` 33 sao os de `www-data` na imagem — valores da imagem, nao da
+    # maquina, entao nada aqui depende de quem clonou o repositorio. `mode` 0700
+    # restringe o acesso ao dono.
+    #
+    # Em memoria, e nao em volume: view compilada e descartavel, some com o
+    # container e e refeita na primeira requisicao. O restante de `storage/` fica
+    # de fora, porque nada mais precisa disso agora.
+    tmpfs:
+      - "/app/storage/framework/views:uid=33,gid=33,mode=0700"
+
+    working_dir: /app
+
+    # Declarado mesmo coincidindo com o padrao da imagem: e o comando que
+    # distingue este servico dos outros tres que compartilham a imagem, e le-lo
+    # aqui dispensa abrir o Dockerfile para descobrir o que cada um executa.
+    command: ["php-fpm"]
+
+    networks:
+      - interna
+
+    # Sem `ports`. FastCGI nao autentica e executa o que o cliente pedir;
+    # publicar a 9000 no host seria expor um interpretador. Quem precisa dessa
+    # porta e o `web`, que esta na mesma rede.
+
+    # Sem dependencia declarada ainda: `/up` nao consulta banco nem storage. A
+    # ordem definitiva chega com o `setup`, criado na tarefa seguinte, e e ele
+    # que este servico passara a esperar (plan §16.1).
+
+    # A verificacao fala o protocolo do proprio servico.
+    #
+    # Nao ha requisicao web aqui: este container nao tem servidor HTTP, e uma
+    # consulta desse tipo falharia com o processo perfeitamente saudavel.
+    #
+    # Conferir a sintaxe da configuracao tambem nao serviria: esse teste le
+    # arquivo e sai, com o mesmo resultado quer o processo principal esteja de
+    # pe, quer nao.
+    #
+    # O que roda e um pedido FastCGI de verdade, feito com o interpretador que a
+    # imagem ja traz e nenhum pacote a mais: abre a conexao na 9000, envia um
+    # registro de consulta de parametros — os 17 bytes de `FCGI_MPXS_CONNS` — e
+    # exige que a resposta comece com um cabecalho do tipo 10, o reservado ao
+    # resultado dessa consulta.
+    #
+    # Abrir a conexao e parar por ai seria mais curto e diria bem menos: passa
+    # contra qualquer coisa que aceite conexao naquela porta. Responder o
+    # protocolo so quem o entende consegue, e quem responde e um processo filho
+    # do pool — entao o sucesso significa que ha trabalhador disponivel, nao
+    # apenas socket aberto.
+    #
+    # O `$$` impede o Compose de interpolar as variaveis do trecho na leitura do
+    # YAML: elas pertencem ao interpretador, nao a este arquivo.
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - -r
+        - '$$c = @stream_socket_client("tcp://127.0.0.1:9000", timeout: 2) or exit(1); fwrite($$c, pack("CCnnCC", 1, 9, 0, 17, 0, 0) . "\x0f\x00FCGI_MPXS_CONNS"); stream_set_timeout($$c, 2); $$r = fread($$c, 8); exit(strlen($$r) === 8 && ord($$r[1]) === 10 ? 0 : 1);'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Servidor HTTP a frente do PHP-FPM, e unica porta de entrada da API no
+  # ambiente local.
+  web:
+    image: nginx:1.30.4-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c
+
+    restart: unless-stopped
+
+    volumes:
+      # A configuracao entra no diretorio que a imagem oficial ja inclui a
+      # partir do bloco `http`, sem substituir a configuracao principal dela.
+      - ./docker/web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Somente o diretorio publico, e somente leitura. O servidor nao precisa
+      # enxergar codigo de aplicacao, dependencias ou storage para servir
+      # arquivo estatico e encaminhar o resto — e o que ele nao enxerga nao vaza
+      # por configuracao errada.
+      #
+      # O caminho e o mesmo que o `api` ve, porque o `SCRIPT_FILENAME` enviado
+      # daqui e resolvido la dentro: dois caminhos diferentes produziriam
+      # "arquivo nao encontrado" vindo do interpretador.
+      - ./backend/public:/app/public:ro
+
+    networks:
+      - interna
+
+    ports:
+      # Bind em 127.0.0.1 pelo mesmo motivo do storage: sem ele o Docker
+      # publicaria em todas as interfaces da maquina.
+      - "127.0.0.1:8080:80"
+
+    # Subir antes de o PHP-FPM aceitar conexao renderia 502 ate o encaminhamento
+    # comecar a funcionar.
+    depends_on:
+      api:
+        condition: service_healthy
+
+    # PRONTIDAO TEMPORARIA. `/up` e o endpoint de saude padrao do Laravel e esta
+    # aqui porque `/api/health` — o do plano, que verifica banco e storage — so
+    # existe a partir de T075. Aquela tarefa aponta esta verificacao para o novo
+    # endpoint e remove esta nota. Ate la, o que fica provado e que a aplicacao
+    # responde HTTP, e nada a respeito das dependencias dela.
+    #
+    # `wget` ja acompanha a imagem; `curl` nao, e nao vale instalar um pacote
+    # por causa de uma verificacao.
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1/up"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 volumes:
   mysql-dados:
   rustfs-dados:

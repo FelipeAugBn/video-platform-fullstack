@@ -345,7 +345,7 @@ neste documento começa antes de ele ser validado e consolidado.
   - **Depende de:** T004.
   - **Critério de conclusão:** build do Nuxt conclui sem erro.
 
-- [ ] **T010** Serviços `api` e `web`, com prontidão temporária
+- [x] **T010** Serviços `api` e `web`, com prontidão temporária
   - **Objetivo:** a API respondendo HTTP através de um servidor web à frente do
     PHP-FPM.
   - **Arquivos previstos:** `docker-compose.yml`, `docker/web/nginx.conf`.
