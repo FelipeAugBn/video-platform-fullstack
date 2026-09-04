@@ -565,7 +565,7 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
     formatos de resposta disponíveis e testados antes de existir endpoint de
     negócio.
 
-- [ ] **T017** `VideoState` e a tabela de transições
+- [x] **T017** `VideoState` e a tabela de transições
   - **Objetivo:** um único lugar que responde se uma transição é permitida.
   - **Arquivos previstos:** `backend/app/Video/Domain/VideoState.php`,
     `backend/tests/Unit/Video/VideoStateTest.php`.
