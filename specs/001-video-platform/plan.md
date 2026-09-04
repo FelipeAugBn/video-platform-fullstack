@@ -783,11 +783,62 @@ compartilhem o domínio-base no ambiente publicado.
 
 Sessões em MySQL, na tabela `sessions` — mesmo motivo de não introduzir Redis.
 
+**Credencial inválida é recusada como erro de validação, com a mesma resposta
+nos dois casos** (RF-AUT-008): `422`, código `VALIDATION_FAILED` e mensagem
+genérica no campo de e-mail, seja a conta inexistente, seja a senha incorreta.
+Diferenciar as duas transformaria o login num verificador de cadastro. O `401`
+fica reservado à ausência de sessão e à sessão expirada, que é o estado que
+reconduz à autenticação.
+
+Ao autenticar, o identificador da sessão é regenerado. Sem isso, um identificador
+plantado no navegador da vítima antes do login continuaria válido depois dele, e
+passaria a apontar para a sessão autenticada.
+
+**A chave de criptografia da aplicação é gerada localmente e nunca versionada.**
+Ela assina o cookie de sessão e cifra o que ele guarda: sem chave não há
+autenticação. O arquivo de exemplo traz a variável vazia — uma chave publicada
+seria idêntica em toda cópia do repositório, e assinar sessão com um segredo
+conhecido equivale a não assinar. A subida oficial do ambiente gera uma chave
+aleatória de 32 bytes quando ela falta, dentro da própria imagem do backend,
+grava-a no arquivo de ambiente ignorado pelo Git e **nunca substitui uma chave
+existente** — trocá-la invalidaria as sessões ativas. A preparação do ambiente
+recusa subir com chave ausente ou malformada, antes de tocar em banco ou storage,
+para que a falha apareça na causa e não três camadas adiante.
+
+A consequência assumida: subir os serviços diretamente, sem passar pela
+preparação oficial, falha quando a chave ainda não existe. A mensagem diz o que
+fazer, e o caminho de correção é uma linha.
+
 ### 9.2 CSRF e CORS
 
 O fluxo começa em `GET /sanctum/csrf-cookie`, que planta o cookie `XSRF-TOKEN`.
 Requisições mutantes reenviam esse valor no header `X-XSRF-TOKEN`. O middleware
 de CSRF do Laravel valida.
+
+**Token ausente ou inválido responde `419` com o código `CSRF_TOKEN_MISMATCH`**,
+em `application/problem+json`, e a operação não é executada (RF-AUT-009). O
+código próprio existe para a interface distinguir um token expirado — que se
+resolve pedindo outro — de uma credencial recusada, que não se resolve
+repetindo.
+
+**Estratégia do cliente, uma única repetição.** Diante do primeiro `419`, o
+frontend busca um novo cookie CSRF e repete a requisição **uma vez**. Se a
+repetição também falhar, o erro é entregue à interface. O limite é o ponto: sem
+ele, um `419` persistente — sessão encerrada no servidor, relógio fora de
+sincronia, configuração errada de domínio — produziria um laço infinito de
+renovação e reenvio, e o usuário veria a tela travada em vez de uma mensagem.
+
+O cookie `XSRF-TOKEN` é legível pelo JavaScript por necessidade: é o cliente
+quem devolve seu valor no header. Ele **não** é a credencial de autenticação —
+essa é o cookie de sessão, que permanece `HttpOnly`.
+
+Configuração local, com os três formatos distintos já descritos: hosts
+first-party em `localhost:3000`, origem completa `http://localhost:3000`
+autorizada no CORS, e o cookie de sessão sem domínio declarado — host-only.
+Cookies **não são separados por porta**, e é por isso que o cookie emitido em
+`localhost` serve ao frontend em `:3000` e à API em `:8080` sem precisar abrir o
+escopo para subdomínios. Em HTTP local o cookie não é marcado como seguro; sob
+HTTPS, passa a ser.
 
 Três configurações distintas, com formatos e propósitos diferentes — tratá-las
 como a mesma lista é a origem mais comum de sessão que não persiste:
@@ -891,7 +942,8 @@ mensagem de exceção ou detalhe interno (RN-AUT-005).
 | `404` | Recurso inexistente, de outro produtor, ou curso sem concessão |
 | `405` | Método HTTP não permitido para uma rota existente |
 | `409` | Conflito de regra: publicar sem vídeo pronto, novo envio sobre tentativa ativa, callback permanentemente incompatível |
-| `422` | Validação de entrada; também carga de webhook estruturalmente inválida |
+| `419` | Token de proteção contra requisição forjada ausente ou inválido, em operação que exige sessão |
+| `422` | Validação de entrada, incluindo credencial de autenticação recusada; também carga de webhook estruturalmente inválida |
 | `503` | Falha transitória ao processar o callback, com `Retry-After`; ou storage transitoriamente indisponível na conclusão |
 
 O webhook responde `200` quando o evento é aceito, porque ele é aplicado

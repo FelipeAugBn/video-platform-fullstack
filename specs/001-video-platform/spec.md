@@ -644,11 +644,39 @@ verificadas. Estratégia e prazo em `plan.md` §14.2 (ABERTO-007).
   código cliente.
 - **RF-AUT-007** `[OBRIGATÓRIO]` Entradas são validadas nas fronteiras, e erros
   não expõem informação sensível nem detalhes internos.
+- **RF-AUT-008** `[DECISÃO]` Uma tentativa de autenticação com credenciais
+  inválidas é recusada como erro de validação, com mensagem genérica associada ao
+  campo de identificação. A resposta é **idêntica** para credencial de um usuário
+  inexistente e para senha incorreta de um usuário existente, e não permite
+  determinar qual das duas ocorreu.
+
+O desafio exige negar o acesso, mas não determina se a negativa pode revelar que
+a conta existe. Ocultar essa diferença é decisão deste projeto: uma resposta que
+distingue "não há conta com este e-mail" de "a senha está errada" transforma a
+tela de autenticação num verificador de cadastro, e basta percorrer uma lista de
+endereços para descobrir quem usa a plataforma. É a mesma razão de RN-PROP-005,
+aplicada à fronteira de autenticação.
+
+A negativa por credencial é distinta da ausência de sessão: a primeira é uma
+requisição recebida e recusada pelo conteúdo; a segunda pede reautenticação e
+tem estado próprio na interface (RF-AUT-005, RF-UI-014).
+- **RF-AUT-009** `[DECISÃO]` Operações que alteram estado exigem, além da sessão,
+  um token de proteção contra requisição forjada por terceiro site. Token ausente
+  ou que não confere faz a operação ser recusada **sem ser executada**, com
+  resposta em formato próprio e código estável, distinguível de falha de
+  autenticação e de erro de validação.
+
+O desafio exige tratar CSRF de forma coerente e documentada, sem fixar o
+mecanismo nem a resposta. Dar à falha um código próprio é escolha deste projeto:
+sem ele, a interface não teria como distinguir "seu token expirou, peça outro e
+repita" de "suas credenciais não servem" — e trataria como erro definitivo algo
+que se resolve sozinho com uma nova tentativa.
 
 `[RESOLVIDO]` Sessão em cookie `HttpOnly`, sem credencial acessível ao
 JavaScript, com proteção CSRF e CORS restrito a origens explícitas com
 credenciais. Configuração e justificativa em `plan.md` §9 (ABERTO-001). O desafio
-exige apenas que sejam coerentes e documentados.
+exige apenas que sejam coerentes e documentados. Os códigos de resposta de
+RF-AUT-008 e RF-AUT-009 estão fixados na tabela de `plan.md` §10.3.
 
 ---
 
@@ -1097,7 +1125,7 @@ Relaciona os grupos de requisitos deste documento às seções do desafio oficia
 | §9.2 | Upload de arquivos grandes | RF-UI-004; RF-UPL-005; RNF-001; ABERTO-014 |
 | §9.3 | Qualidade da interface | RF-UI-016 |
 | §9.4 | Contrato com a API | RF-UI-009, RF-UI-017; ABERTO-010 |
-| §10 | Cenário, autenticação e segurança | Seções 11 e 13; RN-AUT-001 a 006; RN-PROP-005; RN-VID-004, RN-VID-006, RN-VID-007; RF-ERR-001 a 014; RNF-003, RNF-010 |
+| §10 | Cenário, autenticação e segurança | Seções 11 e 13; RF-AUT-001 a 009; RN-AUT-001 a 006; RN-PROP-005; RN-VID-004, RN-VID-006, RN-VID-007; RF-ERR-001 a 014; RNF-003, RNF-010 |
 | §11 | Testes automatizados | RNF-005 a 007; seção 15 inteira, incluindo AC-VID-013; AC-E2E-001 |
 | §12 | Qualidade, pipeline, banco e Git | RNF-008, RNF-009, RNF-012, RNF-014 a 017 |
 | §13 | Documentação obrigatória | RNF-011 |
