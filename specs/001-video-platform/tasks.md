@@ -397,7 +397,7 @@ neste documento começa antes de ele ser validado e consolidado.
   - **Critério de conclusão:** bucket e CORS criados pelo `setup`, migrations
     padrão aplicadas.
 
-- [ ] **T012** Serviços restantes e inicialização do ambiente
+- [x] **T012** Serviços restantes e inicialização do ambiente
   - **Objetivo:** completar os oito serviços e deixar o ambiente subindo com um
     comando, sem segredo real no repositório.
   - **Arquivos previstos:** `docker-compose.yml`, `backend/config/queue.php`,
@@ -429,17 +429,39 @@ neste documento começa antes de ele ser validado e consolidado.
     webhook — e um `Makefile` cujo alvo de subida é o comando único da entrega.
     As duas coisas andam juntas porque o arquivo de exemplo só fica correto
     depois que o Compose declara todas as variáveis que consome.
-  - **Testes/validação:** `docker compose up -d` sobe os oito serviços;
-    `docker compose ps` não mostra reinício em laço; `docker compose logs worker`
-    e `logs simulator-worker` mostram os dois consultando `default` e `simulator`
-    sem erro e sem trabalho;
-    `docker compose config | grep -i redis` não retorna nada;
-    `cp .env.example .env && make up` sobe o ambiente a partir do exemplo; e
-    `grep -rIn "password\|secret\|key" .env.example` mostra somente placeholders.
+  - **Testes/validação:** `cp .env.example .env && make up` sobe o ambiente a
+    partir do arquivo de exemplo, e a conferência é por `docker compose ps -a`,
+    **não** por `docker compose ps`: o segundo omite container encerrado, e é
+    justamente um deles que precisa ser inspecionado.
+
+    Os oito serviços do Compose não têm o mesmo desfecho esperado, e confundi-los
+    faria uma subida correta parecer defeituosa:
+
+    - **sete processos permanentes em `Up`** — `mysql`, `rustfs`, `api`, `web`,
+      `worker`, `simulator-worker` e `frontend`;
+    - **um serviço temporário concluído**, `setup`, em `Exited (0)`. Ele prepara
+      banco e storage e termina; sair é o sucesso dele, não uma queda.
+
+    Nenhum deles em reinício em laço.
+
+    Cada consumidor é comprovado por evidência independente, e **não** por uma
+    frase informativa específica no log — mensagem de cortesia do framework é
+    contingente, e prender a validação a ela testaria a formatação, não o
+    processo. O que se exige de cada um: o container em execução; o comando do
+    processo `1`, lido de `/proc/1/cmdline`, nomeando a fila e as opções
+    operacionais; `queue:monitor` alcançando a fila de dentro daquele container;
+    a conexão viva com o MySQL, visível em `information_schema.processlist`;
+    `jobs` e `failed_jobs` vazias; e nenhum erro nos logs.
+
+    `docker compose config | grep -i redis` não retorna nada, e
+    `grep -rIn "password\|secret\|key" .env.example` mostra somente
+    placeholders.
   - **Depende de:** T011.
-  - **Critério de conclusão:** oito serviços em execução, sem Redis, os dois
-    workers consultando suas filas com a conexão em banco configurada, e o
-    ambiente subindo com um comando a partir do arquivo de exemplo.
+  - **Critério de conclusão:** oito serviços contabilizados — sete processos
+    permanentes em execução e o `setup` concluído com sucesso (`Exited (0)`) —,
+    sem reinício em laço, sem Redis, os dois workers consultando suas filas com a
+    conexão em banco configurada, e o ambiente subindo com um comando a partir do
+    arquivo de exemplo.
 
 > **Checkpoint da Fase 1**
 > **Serviços definidos:** os oito do plano — `mysql`, `rustfs`, `setup`, `api`,
@@ -707,6 +729,21 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
     exigem consumidor, e a falha resulta em `403`. A checagem de perfil **não**
     substitui a de propriedade, que vive no caso de uso e chega em T034.
 
+    **A chave de criptografia da aplicação passa a ser obrigatória aqui, e não
+    antes.** Quem participa da sessão HTTP do navegador é a **API** — é ela que
+    emite e lê o cookie. A chave é o que permite ao framework cifrar e assinar,
+    e o cookie da autenticação depende disso: sem ela, não há sessão.
+
+    Todos os containers PHP recebem **a mesma** chave, porque executam a mesma
+    aplicação Laravel e precisam de uma configuração criptográfica coerente —
+    qualquer um deles pode cifrar ou verificar um valor, e duas chaves seriam
+    duas aplicações. Isso **não** significa que `setup`, `worker` e
+    `simulator-worker` leiam normalmente a sessão do navegador; eles não
+    participam do fluxo HTTP autenticado.
+
+    A chave real é **gerada localmente** e fica **fora do Git**, em arquivo de
+    ambiente ignorado — nunca como valor versionado.
+
     Ausência ou expiração de sessão produz `401`; perfil sem permissão produz
     `403`. Cada um com código funcional estável — é o que permite ao frontend
     distinguir reautenticar de não pode. O `404` de recurso alheio é acrescentado
@@ -934,9 +971,9 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
 
 ## Fase 8 — Fila e processamento
 
-- [ ] **T055** Primeiro uso da fila: despacho pós-commit e job de processamento
-  - **Objetivo:** o primeiro trabalho assíncrono da aplicação, disparado depois do
-    commit e seguro para ser repetido.
+- [ ] **T055** Primeiro uso da fila: enfileiramento atômico e job de processamento
+  - **Objetivo:** o primeiro trabalho assíncrono da aplicação, gravado na mesma
+    transação que muda o estado e seguro para ser repetido.
   - **Arquivos previstos:**
     `Video/Infrastructure/Queue/ProcessVideoJob.php`,
     `Video/Application/StartProcessing/`, `Video/Domain/ProcessingEventId.php`,
@@ -951,15 +988,26 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
     cria de novo.** O que ela acrescenta é o primeiro uso funcional: até aqui as
     filas estavam vazias. Nenhum Redis, nenhum Horizon.
 
-    O job de processamento é despachado **depois** do commit da transação que
-    transiciona para `uploaded`, nunca dentro dela: um worker é outro processo e
-    leria um estado que ainda não existe.
+    O `ProcessVideoJob` é criado **dentro** da mesma transação que grava
+    `uploaded`, e não depois dela. A fila usa a conexão padrão da aplicação, então
+    a linha de `jobs` participa daquele commit: no rollback não sobra nem estado
+    nem job; no commit os dois passam a existir juntos; e antes do commit a linha
+    não existe para nenhum outro processo, então o `worker` não a alcança
+    (plan §7.4).
 
     `ProcessVideoJob` recebe **apenas** o identificador da tentativa e recarrega o
-    estado sob lock. Em `uploaded`, transiciona para `processing` e **agenda** a
-    entrega destinada à fila `simulator`; em `processing`, trata como retomada e
-    também agenda; em `ready` ou `failed`, encerra sem efeito; em `pending` ou
+    estado sob lock. Em `uploaded`, transiciona para `processing` e enfileira a
+    entrega destinada à fila `simulator` — as duas coisas **na mesma transação**,
+    pela mesma razão; em `processing`, trata como retomada e enfileira a entrega
+    novamente; em `ready` ou `failed`, encerra sem efeito; em `pending` ou
     `uploading`, não inicia.
+
+    A retomada em `processing` agenda de novo a **mesma** entrega, com o **mesmo**
+    `event_id` — e é seguro justamente por isso: o webhook idempotente reconhece a
+    repetição e não produz efeito novo.
+
+    Nenhum Redis, nenhum Horizon, nenhum outbox. A garantia vem de fila e domínio
+    compartilharem a conexão MySQL, e vale enquanto for assim.
 
     O `simulator-worker` já consulta essa fila desde T012, mas o componente que
     **processa** a entrega simulada só existe em T067. Nesta etapa, portanto, o
@@ -971,26 +1019,53 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
     tentativa e do cenário — sucesso ou falha. Nunca aleatório: um identificador
     novo a cada tentativa transformaria retentativa em evento novo e anularia a
     idempotência do webhook.
-  - **Testes/validação:**
-    `docker compose run --rm api php artisan test --filter=Processing`, cobrindo
-    o rollback que não deixa job enfileirado, os cinco estados de entrada do job,
-    o agendamento da entrega provado com fila falsa, e a estabilidade e a
-    distinção do `event_id` entre cenários. Mais `docker compose logs worker`
-    mostrando o `worker` consumindo, pela primeira vez, um job da aplicação na
-    fila `default`.
+  - **Testes/validação:** duas famílias de teste, que provam coisas diferentes e
+    não se substituem.
+
+    **Contrato do despacho, com fila falsa.** `Queue::fake` serve para verificar
+    *qual* classe foi despachada, *qual* fila recebeu o trabalho e que o
+    `event_id` é estável e distinto entre cenários. Cobre também os cinco estados
+    de entrada do job e a retomada em `processing`, que reagenda a entrega com o
+    mesmo `event_id`.
+
+    **Atomicidade, com banco real.** `Queue::fake` intercepta o despacho antes de
+    ele chegar ao banco, e o driver `sync` executa o job na hora: **nenhum dos
+    dois prova atomicidade transacional** — provam contrato e efeito, não que
+    estado e job compartilham o mesmo commit. Essa prova exige um teste de
+    integração com **MySQL real**, sobre o schema de testes do projeto e com
+    `QUEUE_CONNECTION=database`. Durante a execução, o `worker` precisa estar
+    **parado ou isolado**, senão ele consome a linha antes da inspeção e o teste
+    passa a medir a corrida em vez da transação. O que se afirma:
+
+    - **rollback** deixa ausentes tanto a alteração de domínio quanto a linha de
+      `jobs` — nenhuma das duas persiste;
+    - **commit** deixa as duas persistidas.
+
+    **SQLite em memória não vale aqui.** Ele tem outro comportamento
+    transacional, e passar nele não diz nada sobre a Database Queue sobre MySQL
+    que é a decisão do projeto (plan §7.4).
+
+    O banco de testes vem de `DB_TEST_DATABASE`, já definido pelo ambiente — o
+    comando concreto é escrito quando esta tarefa for implementada, sem nome de
+    banco fixado à mão.
+
+    Fecha com `docker compose logs worker` mostrando o `worker` consumindo, pela
+    primeira vez, um job da aplicação na fila `default`.
   - **Depende de:** T053.
   - **Critério de conclusão:** o primeiro job da aplicação consumido pelo `worker`
-    na fila `default`, os cinco caminhos do job verdes, a entrega para a fila
-    `simulator` comprovadamente agendada e o identificador de evento estável.
+    na fila `default`, o enfileiramento provadamente atômico com a mudança de
+    estado, os cinco caminhos do job verdes, a entrega para a fila `simulator`
+    comprovadamente agendada e o identificador de evento estável.
     **Esta tarefa não afirma que a entrega simulada foi processada** — isso é
     T067.
 
 > **Checkpoint da Fase 8**
-> **Passa a funcionar:** concluir um envio enfileira o processamento; o job
-> transiciona para `processing` e agenda a entrega para a fila do simulador, de
-> forma retomável e com identificador de evento estável.
-> **Testes verdes:** despacho pós-commit, os cinco caminhos do job, o agendamento
-> provado com fila falsa e a estabilidade do `event_id`.
+> **Passa a funcionar:** concluir um envio enfileira o processamento na mesma
+> transação que grava o estado; o job transiciona para `processing` e agenda a
+> entrega para a fila do simulador, também atomicamente, de forma retomável e com
+> identificador de evento estável.
+> **Testes verdes:** enfileiramento atômico, os cinco caminhos do job, o
+> agendamento provado com fila falsa e a estabilidade do `event_id`.
 > **Comandos:** `docker compose up -d`,
 > `docker compose run --rm api php artisan test`,
 > `docker compose logs worker`.
@@ -1013,13 +1088,28 @@ fase inteira roda com o callback sendo exercido diretamente pelos testes.
     controller e request em `Video/Interfaces/Http/`, middleware de assinatura em
     `Video/Infrastructure/Webhook/`,
     `Video/Application/Port/WebhookEventStore.php` e adapter Eloquent,
-    `Video/Application/HandleProcessingCallback/`.
+    `Video/Application/HandleProcessingCallback/`, `docker-compose.yml`.
   - **Requisitos:** ABERTO-006; RF-WHK-001 a 007, RF-WHK-009 a 011; RN-IDM-002,
     RN-IDM-003; RN-VID-004, RN-VID-006 a 008; RN-AUT-005; RF-ERR-006 a 009,
     RF-ERR-014; RNF-003; AC-VID-004 a 007, AC-VID-009, AC-VID-013;
     plan §§8.4, 10.3, 13.4.
   - **Implementação:** a rota fica fora de sessão e de CSRF — o emissor é um
     serviço, não um navegador.
+
+    **O segredo compartilhado entra no ambiente aqui.** `WEBHOOK_SECRET` passa a
+    ser declarado no ambiente compartilhado do Compose, com **valor obrigatório e
+    não vazio**: subir sem ele precisa falhar de imediato, e não seguir
+    calculando assinatura sobre chave vazia — o que aceitaria qualquer emissor
+    que soubesse do descuido. O **mesmo** valor serve aos dois lados: o simulador
+    de T067 assina com ele, e o verificador HMAC desta tarefa confere com ele.
+    Dois segredos seriam duas verdades, e toda entrega terminaria em `401`.
+
+    O `.env.example` da raiz e o `backend/.env.example` já o documentam desde
+    T012, deliberadamente antes de existir consumidor: o contrato de configuração
+    é publicado uma vez, e a tarefa que passa a lê-lo não precisa reabrir aqueles
+    arquivos. O `frontend/.env.example` **não** o contém, e não por esquecimento:
+    variável pública do Nuxt é entregue ao navegador junto com o pacote da
+    aplicação, e um segredo de assinatura ali deixaria de ser segredo.
 
     **Origem.** Headers `X-Webhook-Timestamp` e `X-Webhook-Signature` no formato
     `v1=<hex>`. String assinada é `timestamp + "." + corpo bruto`, e a verificação
@@ -1744,7 +1834,7 @@ prova direcionada de simultaneidade preservada é a entrega concorrente do mesmo
 | T050, T051 | Absorvidos em T043 | Consulta de estado e novo envio após falha são casos do mesmo agregado |
 | T052 | **Retirado** | O envio interrompido passa a ser coberto pelo teste da tela de upload em T088: falha de transferência não chama a conclusão e não apresenta o vídeo como pronto |
 | T054 | **Retirado** | A idempotência da publicação é provada pela republicação sem efeito; a transação e o lock permanecem no código |
-| T056 a T058 | Absorvidos em T055 | Despacho pós-commit, job retomável e identificador de evento estável são a mesma configuração de fila |
+| T056 a T058 | Absorvidos em T055 | Enfileiramento atômico, job retomável e identificador de evento estável são a mesma configuração de fila |
 | T060 | Absorvido em T059 | A verificação de origem é a primeira etapa do mesmo endpoint |
 | T061 | **Retirado** | O `event_id` passa a ser a única chave de idempotência; a reentrega repete o desfecho armazenado sem comparar conteúdo |
 | T062 a T066 | Absorvidos em T059 | Reserva, desfechos, códigos de resposta, efeitos e a prova de entrega concorrente pertencem ao mesmo caso de uso |

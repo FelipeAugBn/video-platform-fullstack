@@ -149,7 +149,7 @@ sequenceDiagram
     A->>S: CompleteMultipartUpload
     A->>S: HeadObject
     A->>A: verifica chave, tamanho, tipo e vinculo
-    A->>Q: enfileira apos o commit
+    A->>Q: enfileira na mesma transacao
     A->>N: 202, video em uploaded
     Q->>W: job de processamento
     W->>Q: enfileira tarefa do simulador
@@ -566,7 +566,7 @@ video_attempts 1 ──▶ N webhook_events
 | --- | --- | --- |
 | Criar módulo | Cálculo da próxima posição e inserção, sob lock da linha do curso | — |
 | Criar aula | Cálculo da próxima posição e inserção, sob lock da linha do módulo | — |
-| Concluir envio | Duas transações curtas — validar antes, transicionar depois — dentro de um lock atômico por tentativa | `CompleteMultipartUpload` e `HeadObject` |
+| Concluir envio | Duas transações curtas — validar antes, transicionar e enfileirar o processamento depois — dentro de um lock atômico por tentativa | `CompleteMultipartUpload` e `HeadObject` |
 | Publicar aula | Leitura travada da aula e da tentativa, publicação, atualização do estado do curso | — |
 | Processar callback | Reserva do evento, transição do vídeo e gravação do desfecho | — |
 
@@ -577,8 +577,23 @@ banco. O preço é a possibilidade de um objeto concluído no storage sem transi
 correspondente no domínio — recuperável, porque a conclusão é idempotente e
 reconsulta o objeto (seção 12).
 
-O despacho na fila ocorre **após** o commit. Um worker é outro processo: se ele
-ler o job antes do commit, encontra um estado que ainda não existe.
+O enfileiramento é **atômico com a mudança de estado**, e não posterior a ela. A
+fila `database` usa a mesma conexão MySQL do domínio, então a linha inserida em
+`jobs` participa da mesma transação:
+
+- **antes do commit**, a linha não existe para nenhum outro processo, e o worker
+  não a alcança;
+- **no rollback**, nem o estado nem o job permanecem;
+- **no commit**, os dois passam a existir juntos.
+
+A alternativa — despachar depois do commit — abriria uma janela entre confirmar o
+estado e criar o job. Um processo que morresse nesse intervalo deixaria o vídeo
+confirmado **sem trabalho enfileirado**, e nada voltaria a acioná-lo.
+
+O acoplamento é consciente e vale registrar: a garantia existe porque fila e
+domínio compartilham a mesma conexão MySQL. Mover a fila para Redis, SQS ou
+qualquer serviço externo a invalida, e exigiria outra estratégia — despacho
+pós-commit explícito, outbox ou mecanismo equivalente.
 
 ---
 
@@ -1131,7 +1146,9 @@ Jobs carregam **apenas identificadores** e recarregam o estado ao executar. Um j
 que carrega a entidade serializada opera sobre uma cópia velha — e entre o
 enfileiramento e a execução o estado pode ter mudado.
 
-Despacho após o commit, conforme a seção 7.4.
+O enfileiramento é atômico com a escrita do domínio, conforme a seção 7.4. A
+transição para `uploaded` e a criação do `ProcessVideoJob` pertencem à **mesma
+transação**: ou as duas coisas existem, ou nenhuma delas.
 
 ### 13.2 Fluxo do processamento
 
@@ -1139,31 +1156,36 @@ Despacho após o commit, conforme a seção 7.4.
 `videoAttemptId`. Ele não decide o desfecho do processamento: transiciona o
 estado e repassa o trabalho ao ator externo.
 
-Entre a transição para `processing` e o enfileiramento da entrega ao simulador
-existe uma janela: se o processo morrer no meio, um retry ingênuo encontraria a
-tentativa já em `processing` e concluiria que não há nada a fazer — deixando o
-vídeo parado para sempre sem que ninguém tenha sido acionado. O job é escrito
-para ser retomável:
+Dentro do job, a transição para `processing` e o enfileiramento da entrega ao
+simulador pertencem à **mesma transação**, pelo mesmo motivo da seção 7.4: a fila
+`simulator` vive na mesma conexão MySQL, então a linha de `jobs` da entrega
+participa do commit que grava o estado. Não existe janela entre transicionar e
+agendar — as duas coisas existem juntas ou nenhuma existe.
+
+Isso não dispensa o job de ser **retomável**. A transação fecha a janela interna,
+não a externa: o job pode ser repetido pela fila depois do commit e antes do
+reconhecimento, e nesse caso encontra a tentativa já em `processing`.
 
 | Estado ao carregar sob lock | Ação |
 | --- | --- |
-| `uploaded` | Transiciona para `processing` e marca para entregar |
-| `processing` | Trata como **retomada** de execução interrompida: não transiciona, mas marca para entregar |
+| `uploaded` | Transiciona para `processing` e enfileira a entrega, na mesma transação |
+| `processing` | Trata como **retomada** de execução interrompida: não transiciona, e enfileira a entrega novamente |
 | `ready` ou `failed` | Encerra sem efeito: um retry tardio não regride nada |
 | `pending` ou `uploading` | Incompatível: não inicia processamento |
 
-Após o commit — nunca antes — os dois primeiros casos enfileiram a entrega ao
-`simulator-worker`.
+A retomada em `processing` pode agendar de novo a **mesma** entrega. É seguro
+porque ela carrega o mesmo `event_id`, e o webhook idempotente reconhece a
+segunda como repetição da primeira, sem efeito novo.
 
 O comportamento sob falha fica assim:
 
-- **falha antes da transição** — a tentativa continua em `uploaded` e o próprio
-  job é repetido pela fila;
-- **falha depois da transição, antes do enfileiramento** — o retry encontra
-  `processing` e continua dali, enfileirando a entrega;
-- **falha depois de enfileirar** — o retry pode gerar uma entrega duplicada ao
-  simulador, tolerada porque ela carrega o mesmo `event_id` e o webhook é
-  idempotente: a segunda entrega repete o desfecho da primeira sem efeito novo;
+- **erro antes do commit** — nada permanece: nem a transição, nem o job da
+  entrega. A tentativa continua em `uploaded` e o próprio `ProcessVideoJob` é
+  repetido pela fila;
+- **falha depois do commit, antes do reconhecimento do job original** — a fila
+  devolve o `ProcessVideoJob` e o retry encontra `processing`, agendando a
+  entrega outra vez. A entrega duplicada é tolerada, porque o `event_id` é o
+  mesmo e o webhook é idempotente;
 - **estado terminal** — `ready` ou `failed` encerram retries tardios sem
   regressão.
 
@@ -1172,9 +1194,13 @@ identificador da tentativa e do cenário — sucesso —, nunca gerado aleatoria
 a cada execução. Um `event_id` novo por retry transformaria cada repetição em
 evento distinto e anularia toda a idempotência do webhook.
 
-Não há outbox nem serviço adicional: a combinação de `event_id` estável com
-webhook idempotente resolve a entrega duplicada de forma mais simples do que
+Não há outbox nem serviço adicional, e a decisão se mantém: o enfileiramento
+atômico resolve a perda de trabalho, e a combinação de `event_id` estável com
+webhook idempotente resolve a entrega duplicada — de forma mais simples do que
 garantir entrega exatamente uma vez.
+
+Como na seção 7.4, a atomicidade depende de fila e domínio estarem na mesma
+conexão MySQL. Uma fila externa exigiria rever esta estratégia.
 
 ### 13.3 Simulador
 
@@ -1765,7 +1791,7 @@ Cada `ABERTO` da `spec.md` e onde este plano o resolve.
 | ABERTO-001 | Autenticação, sessão, CORS, CSRF, armazenamento no cliente | §9 | Sanctum SPA, sessão em MySQL, cookie `HttpOnly`, origens explícitas |
 | ABERTO-002 | Storage e transferência direta, envio em partes | §11 | RustFS S3-compatible, multipart 64 MiB, uma parte por vez, URLs temporárias |
 | ABERTO-003 | Verificação do objeto enviado | §12 | `CompleteMultipartUpload` + `HeadObject` sob lock atômico, validando chave, tamanho, tipo e metadados da tentativa; `ETag` não tratado como MD5 |
-| ABERTO-004 | Mecanismo de fila e forma do worker | §13.1, §13.2 | Database Queue em MySQL, workers separados, despacho pós-commit |
+| ABERTO-004 | Mecanismo de fila e forma do worker | §13.1, §13.2 | Database Queue em MySQL, workers separados, enfileiramento atômico na mesma transação MySQL |
 | ABERTO-005 | Simulador e origem da informação de falha | §13.3, §13.4 | `simulator-worker` isolado chamando o webhook real, sucesso determinístico e falha por comando Artisan sobre tentativa preparada por seed; mensagem de falha derivada internamente, com a carga oficial preservada |
 | ABERTO-006 | Validação de origem do callback | §13.4 | HMAC-SHA256 sobre timestamp e corpo bruto em `X-Webhook-Timestamp` e `X-Webhook-Signature`, `hash_equals`, janela de 5 min; idempotência pelo `event_id` e pelo desfecho persistido |
 | ABERTO-007 | Disponibilização do conteúdo para reprodução | §14.2 | Objeto privado, URL `GET` pré-assinada de 5 minutos pós-autorização |

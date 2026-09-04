@@ -69,6 +69,19 @@ x-backend-environment: &backend-environment
   # isto o Laravel tentaria criar arquivo de log na arvore do host, onde o
   # processo nao escreve.
   LOG_CHANNEL: stderr
+  # Endereco publico da aplicacao: por onde o navegador alcanca a API, e nao o
+  # nome do servico na rede interna. Serve a dois consumidores — o framework, ao
+  # montar link absoluto, e o frontend, como base das suas chamadas HTTP.
+  #
+  # Nao tem relacao com as URLs pre-assinadas do storage. Quem define o host que
+  # aparece nelas e `STORAGE_ENDPOINT_PUBLIC`, declarado a parte justamente
+  # porque sao dois enderecos publicos distintos, de dois servicos distintos
+  # (plan §16.3).
+  APP_URL: ${APP_URL:-http://localhost:8080}
+  # Fila persistida no proprio MySQL (plan §13.1). Declarado aqui, e nao deixado
+  # no padrao do framework, porque este e o unico ponto em que os quatro
+  # processos PHP combinam sobre onde o trabalho fica guardado.
+  QUEUE_CONNECTION: database
 
 services:
   # MySQL 8.4 LTS. Guarda os dados do dominio e tambem sessao e fila — decisao
@@ -399,6 +412,176 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  # Consumidor da fila principal da aplicacao.
+  #
+  # Mesma imagem, mesmo codigo e mesmo ambiente do `api`. Nao e outro servico da
+  # arquitetura: e o mesmo processo de aplicacao em outro ciclo de vida, e o que
+  # o distingue e o comando (plan §16.1).
+  #
+  # Nesta etapa a fila esta configurada e vazia. Nenhum job da aplicacao existe
+  # ainda, entao o processo sobe, anuncia a fila que consome e fica ocioso — que
+  # e exatamente o resultado esperado aqui.
+  worker:
+    <<: *backend-imagem
+
+    restart: unless-stopped
+
+    environment:
+      <<: *backend-environment
+
+    volumes:
+      # Mesmo ponto de montagem do `api`: quem executa o trabalho precisa
+      # enxergar exatamente o codigo que o enfileirou.
+      - ./backend:/app
+
+    working_dir: /app
+
+    # As opcoes operacionais ficam no comando, e nao em cada classe de job: elas
+    # valem para tudo o que este processo executar, inclusive antes de existir a
+    # primeira delas (plan §13.1).
+    #
+    #   --queue    consome `default`, e somente ela
+    #   --tries    tres tentativas antes de a falha virar definitiva
+    #   --backoff  espera 10, 30 e 60 segundos entre as tentativas
+    #   --timeout  60 segundos de execucao por job
+    #
+    # A janela de reserva da conexao e de 90 segundos, deliberadamente maior que
+    # o tempo limite: se a fila devolvesse o job antes de o processo desistir
+    # dele, o mesmo trabalho passaria a rodar duas vezes em paralelo.
+    #
+    # Falha esgotada nao some: vai para `failed_jobs`, com carga e excecao.
+    command:
+      - php
+      - artisan
+      - queue:work
+      - --queue=default
+      - --tries=3
+      - --backoff=10,30,60
+      - --timeout=60
+
+    networks:
+      - interna
+
+    # Sem `ports`: consumidor de fila nao atende requisicao de ninguem.
+
+    # Mesma espera do `api`, e pelo mesmo motivo: o consumidor abre conexao com o
+    # banco na primeira leitura da fila, e a tabela que ele le e criada pela
+    # preparacao.
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+    # Maior que o tempo limite do job. Ao receber o sinal de parada o processo
+    # termina o job corrente e so entao sai; com a margem padrao de 10 segundos
+    # ele levaria o sinal de forca no meio do trabalho.
+    stop_grace_period: 70s
+
+  # Consumidor da fila do simulador de processamento.
+  #
+  # Processo separado de proposito, e nao uma segunda fila no mesmo consumidor: o
+  # simulador representa um provedor externo, com tempo de espera proprio, e uma
+  # fila dele congestionada nao pode atrasar o trabalho da aplicacao (plan §13.2).
+  #
+  # Como o `worker`, sobe ocioso nesta etapa: o componente que processa a entrega
+  # e chama o callback ainda nao existe.
+  simulator-worker:
+    <<: *backend-imagem
+
+    restart: unless-stopped
+
+    environment:
+      <<: *backend-environment
+
+    volumes:
+      - ./backend:/app
+
+    working_dir: /app
+
+    # Mesmas opcoes operacionais do `worker`, sobre outra fila. A politica de
+    # reentrega do simulador — tres tentativas com espera crescente — e a mesma
+    # que o plano descreve para a chamada do callback (plan §13.4).
+    command:
+      - php
+      - artisan
+      - queue:work
+      - --queue=simulator
+      - --tries=3
+      - --backoff=10,30,60
+      - --timeout=60
+
+    networks:
+      - interna
+
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+    stop_grace_period: 70s
+
+  # Nuxt em modo de desenvolvimento: a interface da aplicacao.
+  frontend:
+    build:
+      context: ./docker/frontend
+    image: video-platform-frontend:dev
+
+    restart: unless-stopped
+
+    # Executa com o dono dos arquivos do repositorio, e nao como administrador do
+    # container.
+    #
+    # O servidor de desenvolvimento escreve na arvore montada — o diretorio de
+    # build intermediario do Nuxt. Escrito por outro dono, esse diretorio ficaria
+    # inacessivel a proxima instalacao de dependencias, e a preparacao do
+    # ambiente deixaria de ser repetivel.
+    #
+    # O alvo de subida exporta os identificadores da maquina; o valor padrao
+    # atende quem sobe o ambiente sem passar por ele.
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+
+    environment:
+      # Endereco publico da API — o mesmo `APP_URL`, porque quem faz a
+      # requisicao e a pagina no navegador, fora da rede do Compose. Apontar
+      # para o nome do servico interno geraria uma base que so um container
+      # resolve.
+      NUXT_PUBLIC_API_BASE: ${APP_URL:-http://localhost:8080}
+      # O processo roda com um identificador que pode nao ter diretorio pessoal
+      # na imagem. Sem isto o gerenciador de pacotes tentaria escrever cache na
+      # raiz do sistema de arquivos.
+      HOME: /tmp
+
+    volumes:
+      # Codigo e dependencias vem do host. O `node_modules` e instalado uma vez
+      # pela preparacao do ambiente e sobrevive a recriacao do container — o
+      # container nao instala nada ao subir.
+      - ./frontend:/app
+
+    working_dir: /app
+
+    # `--host 0.0.0.0` faz o servidor escutar em todas as interfaces do
+    # container. No padrao ele atende apenas em `localhost` de dentro do
+    # container, e o encaminhamento de porta do host nao alcancaria nada.
+    #
+    # Declarado aqui mesmo coincidindo com o padrao da imagem, pelo mesmo motivo
+    # do `api`: e o comando que descreve o que este servico faz.
+    #
+    # Modo SPA, sem renderizacao no servidor: essa decisao vive na configuracao
+    # da aplicacao (plan §15.1) e nada aqui a altera.
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
+    networks:
+      - interna
+
+    ports:
+      # Bind em 127.0.0.1 pelo mesmo motivo do storage e da API: sem ele o
+      # Docker publicaria em todas as interfaces da maquina.
+      - "127.0.0.1:3000:3000"
+
+    # A interface espera a porta de entrada da API responder, e nao o PHP-FPM:
+    # quem prova que a aplicacao esta pronta e o `web` (plan §16.2).
+    depends_on:
+      web:
+        condition: service_healthy
 
 volumes:
   mysql-dados:

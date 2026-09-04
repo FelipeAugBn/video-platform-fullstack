@@ -21,8 +21,8 @@
 #     raiz do backend antes da subida: elas chegam por bind mount, nao dentro da
 #     imagem, e aqui o autoload e apenas conferido. Instala-las na inicializacao
 #     tornaria a subida dependente da rede. O comando unico que faz essa
-#     preparacao e consolidado na T013;
-#   - popular dados — os registros de avaliacao pertencem ao seeder da T028;
+#     preparacao e consolidado na T012;
+#   - popular dados — os registros de avaliacao pertencem ao seeder da T022;
 #   - recriar schema ou desfazer migracao — este script nunca destroi estado.
 
 set -eu
