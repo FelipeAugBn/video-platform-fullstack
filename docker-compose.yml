@@ -1,27 +1,21 @@
 # Ambiente local do projeto.
 #
-# Sem a chave `version`: ela e obsoleta no Compose atual e so gera aviso.
+# Cada imagem e referenciada por tag exata e digest: a tag descreve a intencao e o
+# digest garante o conteudo, porque tag de registry e mutavel e digest nao — e o
+# que sustenta a promessa de ambiente reproduzivel (RNF-020).
 #
-# Cada imagem e referenciada por tag exata e digest. A tag descreve a intencao e
-# o digest garante o conteudo, porque tag de registry e mutavel e digest nao. E
-# o que sustenta a promessa de ambiente reproduzivel (RNF-020).
+# Nenhum segredo mora aqui. `:?` aborta a subida com mensagem clara quando a
+# variavel falta, em vez de aplicar um padrao silencioso (RNF-010).
 
 name: video-platform
 
-# Contrato de configuracao do storage, em um so lugar.
+# Contrato de configuracao do storage. Nao e o ambiente do RustFS, que nao
+# conhece nenhuma destas variaveis: quem as consome sao a aplicacao e o `setup`.
 #
-# Nao e o ambiente do processo do RustFS: ele nao conhece nenhuma destas
-# variaveis e receberia lixo se elas fossem injetadas nele. Quem as consome sao
-# a aplicacao e o `setup` — o adapter de storage e o script que cria o bucket —,
-# nas tarefas seguintes, com `<<: *storage-environment`.
-#
-# Declarar aqui evita que cada servico repita a lista e comece a divergir.
-#
-# Os dois enderecos sao variaveis separadas de proposito (plan §16.3): o interno
-# serve as chamadas dentro da rede do Compose, e o publico e o que aparece nas
-# URLs assinadas entregues ao navegador. Assinar com o host errado produz uma
-# URL que a API considera valida e o navegador nao alcanca — a separacao torna
-# essa confusao um erro visivel, nao um acerto por coincidencia.
+# Os dois enderecos sao separados de proposito (plan §16.3). O interno serve as
+# chamadas dentro da rede do Compose; o publico e o que aparece nas URLs
+# assinadas entregues ao navegador. Assinar com o host errado produz uma URL que
+# a API considera valida e o navegador nao alcanca.
 x-storage-environment: &storage-environment
   STORAGE_ENDPOINT_INTERNAL: ${STORAGE_ENDPOINT_INTERNAL:?defina STORAGE_ENDPOINT_INTERNAL no .env da raiz}
   STORAGE_ENDPOINT_PUBLIC: ${STORAGE_ENDPOINT_PUBLIC:?defina STORAGE_ENDPOINT_PUBLIC no .env da raiz}
@@ -30,82 +24,57 @@ x-storage-environment: &storage-environment
   STORAGE_REGION: ${STORAGE_REGION:?defina STORAGE_REGION no .env da raiz}
   STORAGE_BUCKET: ${STORAGE_BUCKET:?defina STORAGE_BUCKET no .env da raiz}
 
-# Imagem do backend, compartilhada por `api` e `setup` — e, nas tarefas
-# seguintes, por `worker` e `simulator-worker`. Construcao e nome local andam
-# juntos de proposito: com os dois aqui, qualquer servico que use a imagem sabe
-# construi-la sozinho, e `docker compose build setup` funciona numa copia
-# recem-clonada, sem depender de outro servico ter sido construido antes.
+# Imagem do backend, compartilhada por `api`, `setup`, `worker` e
+# `simulator-worker` — sao ciclos de vida da mesma aplicacao, e o que muda entre
+# eles e o comando, nunca a imagem (plan §16.1). Construcao e nome andam juntos
+# para que `docker compose build setup` funcione numa copia recem-clonada.
 x-backend-imagem: &backend-imagem
   build:
     context: ./docker/backend
   image: video-platform-backend:dev
 
-# Ambiente da aplicacao, em um so lugar.
-#
-# Reune o contrato de storage acima e os dados de conexao com o banco. `api` e
-# `setup` recebem exatamente o mesmo conjunto: a preparacao fala com o mesmo
-# banco e o mesmo storage que a aplicacao vai usar, e divergir aqui significaria
-# preparar um ambiente e servir outro.
-#
-# A senha administrativa do banco nao entra. Aplicacao e preparacao usam o
-# usuario comum, que ja recebeu privilegio sobre os dois schemas na
-# inicializacao do banco.
+# Ambiente da aplicacao. `api` e `setup` recebem o mesmo conjunto: a preparacao
+# fala com o mesmo banco e o mesmo storage que a aplicacao vai usar. A senha
+# administrativa do banco nao entra — ambos usam o usuario comum, que ja tem
+# privilegio sobre os dois schemas.
 x-backend-environment: &backend-environment
   <<: *storage-environment
   DB_CONNECTION: mysql
-  # Nome do servico, resolvido pelo DNS interno da rede do Compose.
   DB_HOST: mysql
   DB_PORT: 3306
   DB_DATABASE: ${DB_DATABASE:?defina DB_DATABASE no .env da raiz}
   DB_USERNAME: ${DB_USERNAME:?defina DB_USERNAME no .env da raiz}
   DB_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env da raiz}
-  # Charset e collation valem para a conexao e para cada tabela criada. O Laravel
-  # nao herda o padrao do servidor: declara os proprios valores na conexao e em
-  # todo `CREATE TABLE`. Configurar apenas o MySQL e o schema deixaria as tabelas
-  # com a collation padrao do framework, divergente da arquitetura (plan §7).
+  # O Laravel nao herda o padrao do servidor: declara os proprios valores na
+  # conexao e em todo `CREATE TABLE`. Configurar so o MySQL deixaria as tabelas
+  # com a collation do framework, divergente do plan §7.
   DB_CHARSET: utf8mb4
   DB_COLLATION: utf8mb4_0900_ai_ci
-  # Log na saida de erro do container, visivel em `docker compose logs`. Sem
-  # isto o Laravel tentaria criar arquivo de log na arvore do host, onde o
-  # processo nao escreve.
+  # Log na saida de erro: escrever arquivo exigiria permissao na arvore do host.
   LOG_CHANNEL: stderr
-  # Endereco publico da aplicacao: por onde o navegador alcanca a API, e nao o
-  # nome do servico na rede interna. Serve a dois consumidores — o framework, ao
-  # montar link absoluto, e o frontend, como base das suas chamadas HTTP.
-  #
-  # Nao tem relacao com as URLs pre-assinadas do storage. Quem define o host que
-  # aparece nelas e `STORAGE_ENDPOINT_PUBLIC`, declarado a parte justamente
-  # porque sao dois enderecos publicos distintos, de dois servicos distintos
-  # (plan §16.3).
+  # Endereco publico da API, por onde o navegador chega — nao o nome do servico
+  # na rede interna, e sem relacao com o host das URLs pre-assinadas.
   APP_URL: ${APP_URL:-http://localhost:8080}
-  # Fila persistida no proprio MySQL (plan §13.1). Declarado aqui, e nao deixado
-  # no padrao do framework, porque este e o unico ponto em que os quatro
+  # Fila persistida no proprio MySQL (plan §13.1): unico ponto em que os quatro
   # processos PHP combinam sobre onde o trabalho fica guardado.
   QUEUE_CONNECTION: database
-  # Chave de criptografia, gerada localmente na primeira subida e nunca
-  # versionada (plan §9.1). O padrao vazio existe para o Compose conseguir ler o
-  # arquivo antes de a chave ser gerada; quem recusa uma chave ausente e a
-  # preparacao do ambiente, com mensagem explicita, em vez de a aplicacao falhar
-  # adiante sem causa obvia.
+  # Gerada localmente na primeira subida e nunca versionada (plan §9.1). O padrao
+  # vazio deixa o Compose ler o arquivo antes de a chave existir; quem recusa uma
+  # chave ausente e a preparacao, com mensagem explicita.
   APP_KEY: ${APP_KEY:-}
-  # Mensagens de validacao e de autenticacao em portugues, a partir dos arquivos
-  # de traducao do proprio projeto — sem dependencia acrescentada so para isto.
+  # Traducoes do proprio projeto, sem dependencia acrescentada so para isto.
   APP_LOCALE: pt_BR
   APP_FALLBACK_LOCALE: pt_BR
-  # Sessao no MySQL, pelo mesmo motivo da fila: o banco ja e obrigatorio e o
-  # volume nao justifica um servico a mais (plan §9.1).
+  # Sessao no MySQL pelo mesmo motivo da fila: o banco ja e obrigatorio e o volume
+  # nao justifica um servico a mais (plan §9.1).
   SESSION_DRIVER: database
   SESSION_TABLE: sessions
-  # Cookie host-only: sem dominio declarado, o navegador o devolve apenas ao host
-  # exato que o emitiu. Cookies **nao sao separados por porta**, entao o cookie
-  # emitido em `localhost` serve ao frontend em `:3000` e a API em `:8080` — e o
-  # que permite a sessao atravessar as duas portas em desenvolvimento sem abrir o
-  # cookie para subdominios.
+  # Host-only: sem dominio declarado o navegador devolve o cookie apenas ao host
+  # que o emitiu. Cookies nao sao separados por porta, entao o mesmo cookie serve
+  # ao frontend em :3000 e a API em :8080 sem abrir para subdominios.
   SESSION_DOMAIN: ${SESSION_DOMAIN:-null}
-  # O cookie so viaja em HTTPS quando ha HTTPS. O ambiente local e HTTP, entao o
-  # padrao e `false`: marcar como seguro faria o navegador descartar o cookie, e
-  # a sessao nunca persistiria. **Numa publicacao sob HTTPS este valor precisa
-  # ser `true`** — por isso ele vem do ambiente, e nao fixo aqui.
+  # O ambiente local e HTTP: marcar como seguro faria o navegador descartar o
+  # cookie. Sob HTTPS o valor precisa ser `true` — por isso vem do ambiente.
   SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE:-false}
   # Inacessivel ao JavaScript: e a credencial de autenticacao, e essa e a unica
   # defesa possivel contra um script que consiga rodar na pagina.
@@ -113,8 +82,8 @@ x-backend-environment: &backend-environment
   # `lax` acompanha o fluxo first-party: o cookie viaja na navegacao normal e nao
   # em requisicao partida de outro site, que e o vetor do CSRF.
   SESSION_SAME_SITE: ${SESSION_SAME_SITE:-lax}
-  # Hosts tratados como first-party pelo Sanctum, que por isso autenticam por
-  # sessao em vez de token (plan §9.2). Lista explicita, nunca curinga.
+  # Hosts first-party do Sanctum, que por isso autenticam por sessao em vez de
+  # token (plan §9.2). Lista explicita, nunca curinga.
   SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS:-localhost:3000}
   # Origens completas — esquema, host e porta — autorizadas a ler as respostas.
   # Com credenciais habilitadas o navegador recusa curinga, e o curinga abriria a
@@ -122,36 +91,25 @@ x-backend-environment: &backend-environment
   CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
 
 services:
-  # MySQL 8.4 LTS. Guarda os dados do dominio e tambem sessao e fila — decisao
-  # do projeto para nao introduzir Redis por um volume que nao o justifica
-  # (plan §7).
+  # MySQL 8.4 LTS. Guarda os dados do dominio e tambem sessao e fila — decisao do
+  # projeto para nao introduzir Redis por um volume que nao o justifica (plan §7).
+  #
+  # Nenhum servico fixa `container_name`: fixa-lo quebraria a escala. O Compose o
+  # deriva do nome do projeto, que e fixo — subir uma segunda copia do repositorio
+  # em paralelo exige `docker compose -p <nome>` ou `COMPOSE_PROJECT_NAME`, sem o
+  # que ela reaproveitaria containers, rede e volume desta.
   mysql:
     image: mysql:8.4.11@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb
 
-    # O nome do container nao e fixado: fixa-lo quebraria a escala do servico.
-    # O Compose o deriva do nome do projeto — `video-platform`, declarado
-    # acima — mais o nome do servico.
-    #
-    # Como esse nome de projeto e fixo, uma segunda copia do repositorio nao
-    # sobe em paralelo por padrao: reaproveitaria os mesmos containers, rede e
-    # volume. Para isso e preciso outro nome de projeto, via
-    # `docker compose -p <nome>` ou `COMPOSE_PROJECT_NAME`; com ele, containers,
-    # rede e volume passam todos a ter nomes proprios, e os dados ficam
-    # separados.
-
     restart: unless-stopped
 
-    # Nenhum segredo mora aqui. `:?` faz o Compose abortar com mensagem clara
-    # quando a variavel falta, em vez de subir o banco com um valor padrao
-    # silencioso — senha padrao em arquivo versionado e exatamente o que
-    # RNF-010 proibe.
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?defina DB_ROOT_PASSWORD no .env da raiz}
       MYSQL_DATABASE: ${DB_DATABASE:?defina DB_DATABASE no .env da raiz}
       MYSQL_USER: ${DB_USERNAME:?defina DB_USERNAME no .env da raiz}
       MYSQL_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env da raiz}
-      # Nao e uma variavel da imagem oficial: quem a consome e o script de
-      # inicializacao, que cria o segundo schema.
+      # Nao e da imagem oficial: quem a consome e o script de inicializacao, que
+      # cria o segundo schema.
       MYSQL_TEST_DATABASE: ${DB_TEST_DATABASE:?defina DB_TEST_DATABASE no .env da raiz}
 
     volumes:
@@ -159,26 +117,18 @@ services:
       # container e ficam fora da arvore do repositorio.
       - mysql-dados:/var/lib/mysql
       - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
-      # A imagem executa o que estiver aqui apenas na primeira inicializacao do
-      # volume, quando o datadir ainda esta vazio.
+      # Executado apenas na primeira inicializacao do volume, com o datadir vazio.
       - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
 
     networks:
       - interna
 
-    # Sem `ports`: nada e publicado no host nesta etapa. Quem precisa do banco
-    # esta na mesma rede e o alcanca pelo nome do servico. Publicar a porta so
-    # ampliaria a superficie exposta sem necessidade.
+    # Sem `ports`: quem precisa do banco esta na mesma rede.
 
-    # `mysqladmin ping` por TCP em 127.0.0.1, e nao pelo socket Unix: o socket
-    # responde antes de a porta aceitar conexao, e e pela porta que os demais
-    # servicos vao chegar. Testar o socket declararia o banco pronto cedo
-    # demais.
-    #
-    # A senha vem de `MYSQL_PWD`, lida do ambiente do proprio container. O `$$`
-    # impede o Compose de interpolar na leitura do YAML, deixando a expansao
-    # para o shell de dentro. Fora da variavel de ambiente, a senha apareceria
-    # nos argumentos do processo, visivel a qualquer `ps` no container.
+    # Ping por TCP, e nao pelo socket Unix: o socket responde antes de a porta
+    # aceitar conexao, e e pela porta que os demais servicos chegam. A senha vem
+    # de `MYSQL_PWD` porque nos argumentos apareceria em qualquer `ps`; o `$$`
+    # deixa a expansao para o shell de dentro do container.
     healthcheck:
       test:
         - CMD-SHELL
@@ -186,37 +136,29 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      # A primeira subida inicializa o datadir e cria os bancos, o que leva bem
-      # mais tempo que as seguintes. Durante este periodo a falha nao conta
-      # para `retries` nem marca o servico como doente.
+      # A primeira subida inicializa o datadir e cria os bancos; ate aqui a falha
+      # nao conta para `retries`.
       start_period: 60s
 
-  # Storage S3-compatible, validado em spike antes de entrar aqui: imagem, porta
-  # publicada, verificacao de saude e nivel de log sao os mesmos que passaram
-  # naquela validacao (docs/spikes/rustfs.md).
-  #
-  # Sobe e fica saudavel, nada alem disso. Criar o bucket e aplicar a politica
-  # de CORS pertence ao servico `setup`, que roda uma vez antes da aplicacao.
-  # Terminar esta etapa sem bucket e o resultado esperado, nao uma pendencia.
+  # Storage S3-compatible, validado em spike antes de entrar aqui: imagem, porta,
+  # verificacao de saude e nivel de log sao os que passaram naquela validacao
+  # (docs/spikes/rustfs.md). Sobe e fica saudavel, nada alem disso — criar o
+  # bucket e aplicar a politica de CORS pertence ao `setup`.
   rustfs:
     image: rustfs/rustfs:1.0.0-rc.5@sha256:c36b3efea3d1e503f1a2581abd0e7611e0e5820dd30e1850a52384b3fc52bda4
 
     restart: unless-stopped
 
-    # Somente o que o processo do RustFS entende. As credenciais vem das mesmas
-    # variaveis que a aplicacao usara para assinar, entao nao ha como o storage
-    # e o cliente divergirem por configuracao duplicada.
+    # Somente o que o processo entende, a partir das mesmas variaveis que a
+    # aplicacao usara para assinar: storage e cliente nao podem divergir.
     environment:
       RUSTFS_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?defina STORAGE_ACCESS_KEY no .env da raiz}
       RUSTFS_SECRET_KEY: ${STORAGE_SECRET_KEY:?defina STORAGE_SECRET_KEY no .env da raiz}
       RUSTFS_VOLUMES: /data
-      # `warn` mantem o log legivel durante a avaliacao: em `info` o storage
-      # narra cada requisicao e afoga a saida dos demais servicos.
+      # Em `info` o storage narra cada requisicao e afoga a saida dos demais.
       RUSTFS_OBS_LOGGER_LEVEL: warn
 
     volumes:
-      # Volume nomeado. Os objetos sobrevivem a recriacao do container e ficam
-      # fora da arvore do repositorio.
       - rustfs-dados:/data
 
     networks:
@@ -224,18 +166,13 @@ services:
 
     ports:
       # Endpoint publico do S3, e nada mais — o console administrativo nao e
-      # exposto. A porta do host, 19000, e deliberadamente diferente da interna,
-      # 9000, para que trocar um endereco pelo outro falhe de imediato.
-      #
-      # O bind em 127.0.0.1 restringe o acesso a maquina local: sem ele o Docker
-      # publicaria em todas as interfaces, deixando o storage alcancavel pela
-      # rede em que o host estiver.
+      # exposto. A porta do host e diferente da interna para que trocar um
+      # endereco pelo outro falhe de imediato. O bind em 127.0.0.1, aqui e nos
+      # demais servicos, evita que o Docker publique em todas as interfaces.
       - "127.0.0.1:19000:9000"
 
-    # A verificacao aponta para 127.0.0.1:9000, de dentro do proprio container.
-    # Usar o endereco publico aqui testaria o encaminhamento de porta do host em
-    # vez da saude do processo, e passaria a depender de algo que nao e o
-    # servico.
+    # De dentro do container: pelo endereco publico isto testaria o encaminhamento
+    # de porta do host, e nao a saude do processo.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:9000/health"]
       interval: 3s
@@ -243,35 +180,24 @@ services:
       retries: 20
       start_period: 5s
 
-  # Preparacao do ambiente: roda uma vez, termina e sai.
-  #
-  # Nao expoe porta, nao tem verificacao de saude e nao reinicia — nada disso faz
-  # sentido para um processo que existe para acabar. Quem observa o resultado e o
-  # `api`, que espera o codigo de saida zero (plan §16.2).
+  # Preparacao do ambiente: roda uma vez, termina e sai. Nao expoe porta, nao tem
+  # verificacao de saude e nao reinicia — nada disso faz sentido para um processo
+  # que existe para acabar. Quem observa o resultado e o `api` (plan §16.2).
   setup:
     <<: *backend-imagem
 
-    # `no` entre aspas: sem elas o YAML leria a palavra como valor booleano, e a
-    # chave espera texto. Reiniciar um processo de preparacao que ja terminou o
-    # poria em laco.
+    # `no` entre aspas: sem elas o YAML leria a palavra como booleano.
     restart: "no"
 
     environment:
       <<: *backend-environment
 
     volumes:
-      # A aplicacao, para alcancar as dependencias instaladas e os arquivos de
-      # migracao. Mesmo ponto de montagem do `api`, entao os dois enxergam
-      # exatamente a mesma arvore.
+      # Mesmo ponto de montagem do `api`: os dois enxergam a mesma arvore.
       - ./backend:/app
-      # O script desta tarefa, em um diretorio que ja esta no caminho de busca de
-      # executaveis da imagem.
       - ./docker/backend/setup.sh:/usr/local/bin/setup.sh:ro
-      # Apenas os dois arquivos de bootstrap do storage, e nao o diretorio
-      # inteiro: o restante dele nao pertence a execucao. Ficam lado a lado
-      # porque o script localiza a politica de CORS ao lado de si mesmo.
-      #
-      # Somente leitura nos tres: o container os executa e le, nunca os altera.
+      # Apenas os dois arquivos de bootstrap, e nao o diretorio inteiro. Ficam
+      # lado a lado porque o script localiza a politica de CORS ao lado de si.
       - ./docker/rustfs/criar-bucket.sh:/opt/storage-bootstrap/criar-bucket.sh:ro
       - ./docker/rustfs/cors.json:/opt/storage-bootstrap/cors.json:ro
 
@@ -282,123 +208,78 @@ services:
     networks:
       - interna
 
-    # Banco e storage precisam estar saudaveis, nao apenas iniciados: a
-    # preparacao abre conexao com os dois na primeira linha de trabalho.
+    # Saudaveis, e nao apenas iniciados: a preparacao abre conexao com os dois na
+    # primeira linha de trabalho.
     depends_on:
       mysql:
         condition: service_healthy
       rustfs:
         condition: service_healthy
 
-  # A aplicacao Laravel rodando em PHP-FPM.
-  #
-  # Este container fala FastCGI, nao HTTP. Quem atende o navegador e o `web`,
-  # logo abaixo. A separacao nao e detalhe de arrumacao: uma verificacao HTTP
-  # apontada para ca falharia sempre (plan §16.2).
+  # A aplicacao Laravel em PHP-FPM. Este container fala FastCGI, nao HTTP: quem
+  # atende o navegador e o `web`, e uma verificacao HTTP apontada para ca falharia
+  # sempre (plan §16.2).
   api:
-    # Construcao e nome da imagem vem da definicao compartilhada: `api` e `setup`
-    # sao ciclos de vida diferentes da mesma aplicacao, e o que muda entre eles e
-    # o comando, nunca a imagem (plan §16.1).
     <<: *backend-imagem
-
-    # O nome do container nao e fixado, pelo mesmo motivo ja registrado no banco.
 
     restart: unless-stopped
 
-    # Banco, storage e canal de log vem da definicao compartilhada, a mesma que
-    # o `setup` recebe.
     environment:
       <<: *backend-environment
-      # Schema da suite de testes, e so aqui.
-      #
-      # E deste servico que nascem os containers descartaveis em que a suite
-      # roda, entao e ele que precisa da variavel. `setup`, consumidores e
-      # interface nunca executam teste, e entregar a eles o nome do banco de
-      # testes so ampliaria a chance de alguem escrever nele por engano.
-      #
-      # O bootstrap da suite recusa a execucao se esta variavel faltar, estiver
-      # vazia ou coincidir com o banco da aplicacao (plan §17.2).
+      # Schema da suite, e so aqui: e deste servico que nascem os containers
+      # descartaveis em que ela roda. O bootstrap da suite recusa a execucao se a
+      # variavel faltar, estiver vazia ou coincidir com o banco da aplicacao
+      # (plan §17.2).
       DB_TEST_DATABASE: ${DB_TEST_DATABASE:?defina DB_TEST_DATABASE no .env da raiz}
 
     volumes:
-      # O codigo continua chegando por bind mount: edicao no host aparece no
-      # container sem reconstruir a imagem. Segue em leitura e escrita porque
-      # comandos de desenvolvimento executados aqui — a geracao do autoload, por
-      # exemplo — atualizam arquivos gerados dentro da arvore.
-      #
-      # O que a aplicacao escreve em tempo de execucao nao passa por este ponto:
-      # as views compiladas ficam no `tmpfs` declarado logo abaixo e o log vai
-      # para a saida de erro. Com isso o servico nao depende de permissao de
-      # escrita na arvore do host, cujos arquivos pertencem a outro usuario, nem
-      # de cache deixado por uma execucao anterior.
+      # Edicao no host aparece sem reconstruir a imagem. Em leitura e escrita
+      # porque comandos de desenvolvimento, como a geracao do autoload, atualizam
+      # arquivos dentro da arvore.
       - ./backend:/app
 
-    # Diretorio das views compiladas em memoria — e somente ele.
+    # Views compiladas em memoria — e somente elas.
     #
     # O PHP-FPM roda como `www-data`, dono diferente de quem criou os arquivos no
-    # host. Sem este ponto de montagem, compilar uma view falharia por permissao
-    # e a aplicacao so responderia enquanto sobrasse cache de uma execucao
-    # anterior; foi exatamente o que mascarou a primeira verificacao desta etapa.
-    #
-    # `uid` e `gid` 33 sao os de `www-data` na imagem — valores da imagem, nao da
-    # maquina, entao nada aqui depende de quem clonou o repositorio. `mode` 0700
-    # restringe o acesso ao dono.
-    #
-    # Em memoria, e nao em volume: view compilada e descartavel, some com o
-    # container e e refeita na primeira requisicao. O restante de `storage/` fica
-    # de fora, porque nada mais precisa disso agora.
+    # host: sem isto, compilar uma view falha por permissao e a aplicacao so
+    # responde enquanto sobrar cache de uma execucao anterior. `uid` e `gid` 33
+    # sao os de `www-data` na imagem, entao nada depende de quem clonou o
+    # repositorio. View compilada e descartavel: some com o container e e refeita
+    # na primeira requisicao.
     tmpfs:
       - "/app/storage/framework/views:uid=33,gid=33,mode=0700"
 
     working_dir: /app
 
     # Declarado mesmo coincidindo com o padrao da imagem: e o comando que
-    # distingue este servico dos outros tres que compartilham a imagem, e le-lo
-    # aqui dispensa abrir o Dockerfile para descobrir o que cada um executa.
+    # distingue este servico dos outros tres que a compartilham.
     command: ["php-fpm"]
 
     networks:
       - interna
 
-    # Sem `ports`. FastCGI nao autentica e executa o que o cliente pedir;
-    # publicar a 9000 no host seria expor um interpretador. Quem precisa dessa
-    # porta e o `web`, que esta na mesma rede.
+    # Sem `ports`: FastCGI nao autentica e executa o que o cliente pedir, entao
+    # publicar a 9000 no host seria expor um interpretador.
 
-    # A espera e pelo `setup`, e so por ele. Banco e storage ja sao pre-requisito
-    # daquele servico, entao repetir a dependencia aqui duplicaria a regra sem
-    # mudar a ordem — e deixaria a aplicacao subir com o ambiente ainda pela
-    # metade caso a preparacao falhasse.
-    #
-    # `service_completed_successfully` espera o processo terminar com codigo
-    # zero, nao apenas iniciar: PHP-FPM so aceita conexao depois de banco
-    # migrado e bucket criado (plan §16.2).
+    # A espera e so pelo `setup`: banco e storage ja sao pre-requisito dele, e
+    # repetir a dependencia aqui deixaria a aplicacao subir com o ambiente pela
+    # metade caso a preparacao falhasse. `service_completed_successfully` exige
+    # codigo de saida zero — o PHP-FPM so aceita conexao depois de banco migrado e
+    # bucket criado.
     depends_on:
       setup:
         condition: service_completed_successfully
 
-    # A verificacao fala o protocolo do proprio servico.
+    # A verificacao fala o protocolo do proprio servico: nao ha requisicao web
+    # aqui, e conferir a sintaxe da configuracao daria o mesmo resultado com o
+    # processo de pe ou nao.
     #
-    # Nao ha requisicao web aqui: este container nao tem servidor HTTP, e uma
-    # consulta desse tipo falharia com o processo perfeitamente saudavel.
-    #
-    # Conferir a sintaxe da configuracao tambem nao serviria: esse teste le
-    # arquivo e sai, com o mesmo resultado quer o processo principal esteja de
-    # pe, quer nao.
-    #
-    # O que roda e um pedido FastCGI de verdade, feito com o interpretador que a
-    # imagem ja traz e nenhum pacote a mais: abre a conexao na 9000, envia um
-    # registro de consulta de parametros — os 17 bytes de `FCGI_MPXS_CONNS` — e
-    # exige que a resposta comece com um cabecalho do tipo 10, o reservado ao
-    # resultado dessa consulta.
-    #
-    # Abrir a conexao e parar por ai seria mais curto e diria bem menos: passa
-    # contra qualquer coisa que aceite conexao naquela porta. Responder o
-    # protocolo so quem o entende consegue, e quem responde e um processo filho
-    # do pool — entao o sucesso significa que ha trabalhador disponivel, nao
-    # apenas socket aberto.
-    #
-    # O `$$` impede o Compose de interpolar as variaveis do trecho na leitura do
-    # YAML: elas pertencem ao interpretador, nao a este arquivo.
+    # O comando abre a conexao na 9000, envia um registro FastCGI de consulta de
+    # parametros — os 17 bytes de `FCGI_MPXS_CONNS` — e exige resposta com
+    # cabecalho do tipo 10. So abrir a conexao passaria contra qualquer coisa
+    # escutando na porta; responder o protocolo so quem o entende consegue, e quem
+    # responde e um processo filho do pool, entao o sucesso significa trabalhador
+    # disponivel. O `$$` protege as variaveis do interpretador da interpolacao.
     healthcheck:
       test:
         - CMD
@@ -410,50 +291,36 @@ services:
       retries: 5
       start_period: 10s
 
-  # Servidor HTTP a frente do PHP-FPM, e unica porta de entrada da API no
-  # ambiente local.
+  # Servidor HTTP a frente do PHP-FPM, e unica porta de entrada da API.
   web:
     image: nginx:1.30.4-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c
 
     restart: unless-stopped
 
     volumes:
-      # A configuracao entra no diretorio que a imagem oficial ja inclui a
-      # partir do bloco `http`, sem substituir a configuracao principal dela.
+      # Entra no diretorio que a imagem ja inclui a partir do bloco `http`, sem
+      # substituir a configuracao principal dela.
       - ./docker/web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      # Somente o diretorio publico, e somente leitura. O servidor nao precisa
-      # enxergar codigo de aplicacao, dependencias ou storage para servir
-      # arquivo estatico e encaminhar o resto — e o que ele nao enxerga nao vaza
-      # por configuracao errada.
-      #
-      # O caminho e o mesmo que o `api` ve, porque o `SCRIPT_FILENAME` enviado
-      # daqui e resolvido la dentro: dois caminhos diferentes produziriam
-      # "arquivo nao encontrado" vindo do interpretador.
+      # Somente o diretorio publico, e somente leitura: servir estatico e
+      # encaminhar o resto nao exige enxergar codigo, dependencias ou storage. O
+      # caminho e o mesmo que o `api` ve, porque o `SCRIPT_FILENAME` enviado daqui
+      # e resolvido la dentro.
       - ./backend/public:/app/public:ro
 
     networks:
       - interna
 
     ports:
-      # Bind em 127.0.0.1 pelo mesmo motivo do storage: sem ele o Docker
-      # publicaria em todas as interfaces da maquina.
       - "127.0.0.1:8080:80"
 
-    # Subir antes de o PHP-FPM aceitar conexao renderia 502 ate o encaminhamento
-    # comecar a funcionar.
+    # Subir antes de o PHP-FPM aceitar conexao renderia 502.
     depends_on:
       api:
         condition: service_healthy
 
-    # `/up` e o endpoint de prontidao padrao do Laravel, e e a verificacao HTTP
-    # definitiva deste ambiente. Ela e deliberadamente minima: prova que a
-    # aplicacao responde, e nada a respeito das dependencias dela. Quem ordena a
-    # subida de banco e storage sao os healthchecks de cada um e o servico de
-    # preparacao — repetir essa checagem aqui criaria um segundo lugar dizendo a
-    # mesma coisa.
-    #
-    # `wget` ja acompanha a imagem; `curl` nao, e nao vale instalar um pacote
-    # por causa de uma verificacao.
+    # `/up` e o endpoint de prontidao padrao do Laravel, e e deliberadamente
+    # minimo: prova que a aplicacao responde, e nada sobre as dependencias dela.
+    # `wget` ja acompanha a imagem; `curl` nao, e nao vale um pacote a mais.
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1/up"]
       interval: 10s
@@ -461,15 +328,9 @@ services:
       retries: 5
       start_period: 10s
 
-  # Consumidor da fila principal da aplicacao.
-  #
-  # Mesma imagem, mesmo codigo e mesmo ambiente do `api`. Nao e outro servico da
-  # arquitetura: e o mesmo processo de aplicacao em outro ciclo de vida, e o que
-  # o distingue e o comando (plan §16.1).
-  #
-  # Nesta etapa a fila esta configurada e vazia. Nenhum job da aplicacao existe
-  # ainda, entao o processo sobe, anuncia a fila que consome e fica ocioso — que
-  # e exatamente o resultado esperado aqui.
+  # Consumidor da fila principal: mesmo codigo e mesmo ambiente do `api`, em outro
+  # ciclo de vida. Nesta etapa a fila esta configurada e vazia, entao o processo
+  # sobe, anuncia a fila que consome e fica ocioso.
   worker:
     <<: *backend-imagem
 
@@ -479,26 +340,19 @@ services:
       <<: *backend-environment
 
     volumes:
-      # Mesmo ponto de montagem do `api`: quem executa o trabalho precisa
-      # enxergar exatamente o codigo que o enfileirou.
       - ./backend:/app
 
     working_dir: /app
 
-    # As opcoes operacionais ficam no comando, e nao em cada classe de job: elas
-    # valem para tudo o que este processo executar, inclusive antes de existir a
-    # primeira delas (plan §13.1).
+    # As opcoes ficam no comando, e nao em cada classe de job: valem para tudo o
+    # que este processo executar, inclusive antes de existir a primeira delas
+    # (plan §13.1). Sao tres tentativas, espera de 10, 30 e 60 segundos, e 60
+    # segundos de execucao por job.
     #
-    #   --queue    consome `default`, e somente ela
-    #   --tries    tres tentativas antes de a falha virar definitiva
-    #   --backoff  espera 10, 30 e 60 segundos entre as tentativas
-    #   --timeout  60 segundos de execucao por job
-    #
-    # A janela de reserva da conexao e de 90 segundos, deliberadamente maior que
-    # o tempo limite: se a fila devolvesse o job antes de o processo desistir
-    # dele, o mesmo trabalho passaria a rodar duas vezes em paralelo.
-    #
-    # Falha esgotada nao some: vai para `failed_jobs`, com carga e excecao.
+    # A janela de reserva da conexao e de 90 segundos, deliberadamente maior que o
+    # tempo limite: se a fila devolvesse o job antes de o processo desistir dele,
+    # o mesmo trabalho rodaria duas vezes em paralelo. Falha esgotada nao some:
+    # vai para `failed_jobs`, com carga e excecao.
     command:
       - php
       - artisan
@@ -511,17 +365,13 @@ services:
     networks:
       - interna
 
-    # Sem `ports`: consumidor de fila nao atende requisicao de ninguem.
-
-    # Mesma espera do `api`, e pelo mesmo motivo: o consumidor abre conexao com o
-    # banco na primeira leitura da fila, e a tabela que ele le e criada pela
-    # preparacao.
+    # Mesma espera do `api`: a tabela que o consumidor le e criada pela preparacao.
     depends_on:
       setup:
         condition: service_completed_successfully
 
-    # Maior que o tempo limite do job. Ao receber o sinal de parada o processo
-    # termina o job corrente e so entao sai; com a margem padrao de 10 segundos
+    # Maior que o tempo limite do job: ao receber o sinal de parada o processo
+    # termina o job corrente e so entao sai. Com a margem padrao de 10 segundos
     # ele levaria o sinal de forca no meio do trabalho.
     stop_grace_period: 70s
 
@@ -530,9 +380,7 @@ services:
   # Processo separado de proposito, e nao uma segunda fila no mesmo consumidor: o
   # simulador representa um provedor externo, com tempo de espera proprio, e uma
   # fila dele congestionada nao pode atrasar o trabalho da aplicacao (plan §13.2).
-  #
-  # Como o `worker`, sobe ocioso nesta etapa: o componente que processa a entrega
-  # e chama o callback ainda nao existe.
+  # Como o `worker`, sobe ocioso nesta etapa.
   simulator-worker:
     <<: *backend-imagem
 
@@ -546,9 +394,8 @@ services:
 
     working_dir: /app
 
-    # Mesmas opcoes operacionais do `worker`, sobre outra fila. A politica de
-    # reentrega do simulador — tres tentativas com espera crescente — e a mesma
-    # que o plano descreve para a chamada do callback (plan §13.4).
+    # Mesmas opcoes do `worker`, sobre outra fila. A politica de reentrega e a
+    # mesma que o plano descreve para a chamada do callback (plan §13.4).
     command:
       - php
       - artisan
@@ -575,58 +422,43 @@ services:
 
     restart: unless-stopped
 
-    # Executa com o dono dos arquivos do repositorio, e nao como administrador do
-    # container.
-    #
-    # O servidor de desenvolvimento escreve na arvore montada — o diretorio de
-    # build intermediario do Nuxt. Escrito por outro dono, esse diretorio ficaria
-    # inacessivel a proxima instalacao de dependencias, e a preparacao do
-    # ambiente deixaria de ser repetivel.
-    #
-    # O alvo de subida exporta os identificadores da maquina; o valor padrao
-    # atende quem sobe o ambiente sem passar por ele.
+    # Com o dono dos arquivos do repositorio: o servidor de desenvolvimento
+    # escreve o diretorio de build intermediario na arvore montada, e escrito por
+    # outro dono ele ficaria inacessivel a proxima instalacao de dependencias. O
+    # alvo de subida exporta os identificadores da maquina; o padrao atende quem
+    # sobe o ambiente sem passar por ele.
     user: "${APP_UID:-1000}:${APP_GID:-1000}"
 
     environment:
-      # Endereco publico da API — o mesmo `APP_URL`, porque quem faz a
-      # requisicao e a pagina no navegador, fora da rede do Compose. Apontar
-      # para o nome do servico interno geraria uma base que so um container
-      # resolve.
+      # O mesmo `APP_URL`: quem faz a requisicao e a pagina no navegador, fora da
+      # rede do Compose, e o nome do servico interno geraria uma base que so um
+      # container resolve.
       NUXT_PUBLIC_API_BASE: ${APP_URL:-http://localhost:8080}
-      # O processo roda com um identificador que pode nao ter diretorio pessoal
-      # na imagem. Sem isto o gerenciador de pacotes tentaria escrever cache na
-      # raiz do sistema de arquivos.
+      # O identificador pode nao ter diretorio pessoal na imagem; sem isto o
+      # gerenciador de pacotes escreveria cache na raiz.
       HOME: /tmp
 
     volumes:
-      # Codigo e dependencias vem do host. O `node_modules` e instalado uma vez
-      # pela preparacao do ambiente e sobrevive a recriacao do container — o
-      # container nao instala nada ao subir.
+      # O `node_modules` e instalado uma vez pela preparacao e sobrevive a
+      # recriacao do container, que nao instala nada ao subir.
       - ./frontend:/app
 
     working_dir: /app
 
-    # `--host 0.0.0.0` faz o servidor escutar em todas as interfaces do
-    # container. No padrao ele atende apenas em `localhost` de dentro do
-    # container, e o encaminhamento de porta do host nao alcancaria nada.
-    #
-    # Declarado aqui mesmo coincidindo com o padrao da imagem, pelo mesmo motivo
-    # do `api`: e o comando que descreve o que este servico faz.
-    #
-    # Modo SPA, sem renderizacao no servidor: essa decisao vive na configuracao
-    # da aplicacao (plan §15.1) e nada aqui a altera.
+    # `--host 0.0.0.0` faz o servidor escutar em todas as interfaces do container;
+    # no padrao ele atende so em `localhost` de dentro dele, e o encaminhamento de
+    # porta nao alcancaria nada. Modo SPA, sem renderizacao no servidor: essa
+    # decisao vive na configuracao da aplicacao (plan §15.1).
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
 
     networks:
       - interna
 
     ports:
-      # Bind em 127.0.0.1 pelo mesmo motivo do storage e da API: sem ele o
-      # Docker publicaria em todas as interfaces da maquina.
       - "127.0.0.1:3000:3000"
 
-    # A interface espera a porta de entrada da API responder, e nao o PHP-FPM:
-    # quem prova que a aplicacao esta pronta e o `web` (plan §16.2).
+    # A interface espera a porta de entrada da API, e nao o PHP-FPM: quem prova
+    # que a aplicacao esta pronta e o `web` (plan §16.2).
     depends_on:
       web:
         condition: service_healthy
