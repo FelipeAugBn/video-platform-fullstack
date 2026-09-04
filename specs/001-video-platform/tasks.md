@@ -361,7 +361,7 @@ neste documento começa antes de ele ser validado e consolidado.
   - **Critério de conclusão:** `api` e `web` saudáveis, com o caráter temporário
     do endpoint anotado no `docker-compose.yml`.
 
-- [ ] **T011** Serviço `setup`
+- [x] **T011** Serviço `setup`
   - **Objetivo:** preparar banco e storage antes de a aplicação subir, e então
     encerrar.
   - **Arquivos previstos:** `docker-compose.yml`, `docker/backend/setup.sh`.
@@ -583,9 +583,48 @@ que `video_attempts` existe.
     `api`, `worker` e `simulator-worker` — containers distintos. **`job_batches`
     não é criada:** batching não é usado por decisão alguma do plano, e tabela de
     infraestrutura sem necessidade é peso morto.
-  - **Testes/validação:**
+
+    **Transição a partir do scaffold.** A T011 aplicou as três migrations
+    originais do scaffold, e elas criaram oito tabelas: `users`,
+    `password_reset_tokens`, `sessions`, `cache`, `cache_locks`, `jobs`,
+    `job_batches` e `failed_jobs`. Alterar, substituir ou remover aqueles
+    arquivos antes de desfazer o que eles aplicaram deixaria o registro de
+    controle apontando migrations que já não existem na forma original — e sem os
+    métodos `down` correspondentes não haveria como reverter. A ordem abaixo é
+    obrigatória:
+
+    1. Consultar o estado das migrations antes de tocar em qualquer arquivo.
+    2. Se o lote aplicado na T011 ainda constar, revertê-lo enquanto os três
+       arquivos originais existem e mantêm seus métodos `down` intactos.
+    3. Confirmar que `users`, `password_reset_tokens`, `sessions`, `cache`,
+       `cache_locks`, `jobs`, `job_batches` e `failed_jobs` deixaram de existir.
+    4. Só então substituir as migrations do scaffold.
+    5. Remover a migration padrão de `users` — a versão definitiva, com
+       identificador UUIDv7, é criada na T023.
+    6. Criar aqui somente as cinco migrations de infraestrutura: `sessions`,
+       `cache`, `cache_locks`, `jobs` e `failed_jobs`.
+    7. Não recriar `password_reset_tokens` nem `job_batches`; nenhuma das duas
+       pertence ao modelo aprovado.
+    8. Aplicar as novas migrations.
+    9. Testar o rollback delas.
+    10. Aplicá-las novamente, deixando o ambiente pronto para a T023.
+
+    A transição é segura exatamente nesta altura porque não há o que perder:
+    nenhum seed foi executado e nenhum dado de domínio existe — a T011 confirmou
+    todas as tabelas de dados vazias. Adiada, passaria a exigir migração de
+    dados.
+
+    Em um banco novo, no qual o lote da T011 nunca chegou a ser aplicado, não há
+    rollback inicial a executar: os passos 1 a 3 apenas constatam isso, e a
+    sequência segue a partir do passo 4.
+  - **Testes/validação:** rollback do scaffold executado antes de qualquer
+    alteração nos arquivos, sempre que o lote original estiver aplicado;
     `docker compose run --rm api php artisan migrate` e
     `docker compose run --rm api php artisan migrate:rollback` — ambos sem erro.
+    Ao final: cinco tabelas de infraestrutura presentes, sem contar a tabela de
+    controle `migrations`; `users`, `password_reset_tokens` e `job_batches`
+    ausentes; rollback das cinco funcionando; e a aplicação restaurada, pronta
+    para a T023.
   - **Depende de:** T021.
   - **Critério de conclusão:** cinco tabelas aplicadas e revertidas; nenhuma
     tabela extra.
@@ -595,7 +634,9 @@ que `video_attempts` existe.
   - **Arquivos previstos:** migration de `users`.
   - **Requisitos:** spec seção 4; plan §7.2.
   - **Implementação:** `id` em `CHAR(36)` com charset `ascii` e collation
-    `ascii_bin`; `role` restrito a produtor ou consumidor; e-mail único.
+    `ascii_bin`; `role` restrito a produtor ou consumidor; e-mail único. A
+    migration é escrita do zero, porque a versão demonstrativa herdada do
+    scaffold foi removida na transição da T022.
   - **Testes/validação:** teste contra MySQL real provando a unicidade do e-mail.
     `docker compose run --rm api php artisan test --filter=UsersSchema`.
   - **Depende de:** T022.

@@ -30,6 +30,46 @@ x-storage-environment: &storage-environment
   STORAGE_REGION: ${STORAGE_REGION:?defina STORAGE_REGION no .env da raiz}
   STORAGE_BUCKET: ${STORAGE_BUCKET:?defina STORAGE_BUCKET no .env da raiz}
 
+# Imagem do backend, compartilhada por `api` e `setup` — e, nas tarefas
+# seguintes, por `worker` e `simulator-worker`. Construcao e nome local andam
+# juntos de proposito: com os dois aqui, qualquer servico que use a imagem sabe
+# construi-la sozinho, e `docker compose build setup` funciona numa copia
+# recem-clonada, sem depender de outro servico ter sido construido antes.
+x-backend-imagem: &backend-imagem
+  build:
+    context: ./docker/backend
+  image: video-platform-backend:dev
+
+# Ambiente da aplicacao, em um so lugar.
+#
+# Reune o contrato de storage acima e os dados de conexao com o banco. `api` e
+# `setup` recebem exatamente o mesmo conjunto: a preparacao fala com o mesmo
+# banco e o mesmo storage que a aplicacao vai usar, e divergir aqui significaria
+# preparar um ambiente e servir outro.
+#
+# A senha administrativa do banco nao entra. Aplicacao e preparacao usam o
+# usuario comum, que ja recebeu privilegio sobre os dois schemas na
+# inicializacao do banco.
+x-backend-environment: &backend-environment
+  <<: *storage-environment
+  DB_CONNECTION: mysql
+  # Nome do servico, resolvido pelo DNS interno da rede do Compose.
+  DB_HOST: mysql
+  DB_PORT: 3306
+  DB_DATABASE: ${DB_DATABASE:?defina DB_DATABASE no .env da raiz}
+  DB_USERNAME: ${DB_USERNAME:?defina DB_USERNAME no .env da raiz}
+  DB_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env da raiz}
+  # Charset e collation valem para a conexao e para cada tabela criada. O Laravel
+  # nao herda o padrao do servidor: declara os proprios valores na conexao e em
+  # todo `CREATE TABLE`. Configurar apenas o MySQL e o schema deixaria as tabelas
+  # com a collation padrao do framework, divergente da arquitetura (plan §7).
+  DB_CHARSET: utf8mb4
+  DB_COLLATION: utf8mb4_0900_ai_ci
+  # Log na saida de erro do container, visivel em `docker compose logs`. Sem
+  # isto o Laravel tentaria criar arquivo de log na arvore do host, onde o
+  # processo nao escreve.
+  LOG_CHANNEL: stderr
+
 services:
   # MySQL 8.4 LTS. Guarda os dados do dominio e tambem sessao e fila — decisao
   # do projeto para nao introduzir Redis por um volume que nao o justifica
@@ -152,35 +192,72 @@ services:
       retries: 20
       start_period: 5s
 
+  # Preparacao do ambiente: roda uma vez, termina e sai.
+  #
+  # Nao expoe porta, nao tem verificacao de saude e nao reinicia — nada disso faz
+  # sentido para um processo que existe para acabar. Quem observa o resultado e o
+  # `api`, que espera o codigo de saida zero (plan §16.2).
+  setup:
+    <<: *backend-imagem
+
+    # `no` entre aspas: sem elas o YAML leria a palavra como valor booleano, e a
+    # chave espera texto. Reiniciar um processo de preparacao que ja terminou o
+    # poria em laco.
+    restart: "no"
+
+    environment:
+      <<: *backend-environment
+
+    volumes:
+      # A aplicacao, para alcancar as dependencias instaladas e os arquivos de
+      # migracao. Mesmo ponto de montagem do `api`, entao os dois enxergam
+      # exatamente a mesma arvore.
+      - ./backend:/app
+      # O script desta tarefa, em um diretorio que ja esta no caminho de busca de
+      # executaveis da imagem.
+      - ./docker/backend/setup.sh:/usr/local/bin/setup.sh:ro
+      # Apenas os dois arquivos de bootstrap do storage, e nao o diretorio
+      # inteiro: o restante dele nao pertence a execucao. Ficam lado a lado
+      # porque o script localiza a politica de CORS ao lado de si mesmo.
+      #
+      # Somente leitura nos tres: o container os executa e le, nunca os altera.
+      - ./docker/rustfs/criar-bucket.sh:/opt/storage-bootstrap/criar-bucket.sh:ro
+      - ./docker/rustfs/cors.json:/opt/storage-bootstrap/cors.json:ro
+
+    working_dir: /app
+
+    command: ["/usr/local/bin/setup.sh"]
+
+    networks:
+      - interna
+
+    # Banco e storage precisam estar saudaveis, nao apenas iniciados: a
+    # preparacao abre conexao com os dois na primeira linha de trabalho.
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+
   # A aplicacao Laravel rodando em PHP-FPM.
   #
   # Este container fala FastCGI, nao HTTP. Quem atende o navegador e o `web`,
   # logo abaixo. A separacao nao e detalhe de arrumacao: uma verificacao HTTP
   # apontada para ca falharia sempre (plan §16.2).
   api:
-    # O contexto de build e o diretorio que contem o Dockerfile e os arquivos
-    # que ele copia — configuracao do PHP e entrypoint. Nada de `backend/` entra
-    # na imagem; o codigo chega por bind mount.
-    build:
-      context: ./docker/backend
-
-    # Nome local fixo. `worker`, `simulator-worker` e `setup` vao apontar para
-    # esta mesma imagem nas tarefas seguintes, em vez de reconstrui-la: sao
-    # ciclos de vida diferentes da mesma aplicacao, e o que muda entre eles e o
-    # comando, nunca a imagem (plan §16.1).
-    image: video-platform-backend:dev
+    # Construcao e nome da imagem vem da definicao compartilhada: `api` e `setup`
+    # sao ciclos de vida diferentes da mesma aplicacao, e o que muda entre eles e
+    # o comando, nunca a imagem (plan §16.1).
+    <<: *backend-imagem
 
     # O nome do container nao e fixado, pelo mesmo motivo ja registrado no banco.
 
     restart: unless-stopped
 
-    # O log da aplicacao sai pela saida de erro do container e aparece em
-    # `docker compose logs api`. Sem isto o Laravel tentaria criar
-    # `storage/logs/laravel.log` na arvore do host, onde o processo nao escreve.
-    # A configuracao de log da aplicacao nao muda: ela ja le este canal do
-    # ambiente.
+    # Banco, storage e canal de log vem da definicao compartilhada, a mesma que
+    # o `setup` recebe.
     environment:
-      LOG_CHANNEL: stderr
+      <<: *backend-environment
 
     volumes:
       # O codigo continua chegando por bind mount: edicao no host aparece no
@@ -226,9 +303,17 @@ services:
     # publicar a 9000 no host seria expor um interpretador. Quem precisa dessa
     # porta e o `web`, que esta na mesma rede.
 
-    # Sem dependencia declarada ainda: `/up` nao consulta banco nem storage. A
-    # ordem definitiva chega com o `setup`, criado na tarefa seguinte, e e ele
-    # que este servico passara a esperar (plan §16.1).
+    # A espera e pelo `setup`, e so por ele. Banco e storage ja sao pre-requisito
+    # daquele servico, entao repetir a dependencia aqui duplicaria a regra sem
+    # mudar a ordem — e deixaria a aplicacao subir com o ambiente ainda pela
+    # metade caso a preparacao falhasse.
+    #
+    # `service_completed_successfully` espera o processo terminar com codigo
+    # zero, nao apenas iniciar: PHP-FPM so aceita conexao depois de banco
+    # migrado e bucket criado (plan §16.2).
+    depends_on:
+      setup:
+        condition: service_completed_successfully
 
     # A verificacao fala o protocolo do proprio servico.
     #
