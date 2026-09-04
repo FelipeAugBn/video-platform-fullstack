@@ -409,7 +409,15 @@ pela autorização. **UUID não substitui autorização** — ele apenas torna a
 enumeração impraticável.
 
 Tabelas de infraestrutura do Laravel — `sessions`, `jobs`, `failed_jobs`, `cache`
-e `cache_locks` — mantêm o esquema padrão do framework.
+e `cache_locks` — mantêm o esquema padrão do framework, com **uma exceção**:
+`sessions.user_id`, que a migration padrão declara como `BIGINT`, passa a
+`CHAR(36)` com charset `ascii` e collation `ascii_bin`. A exceção é necessária
+porque é nessa coluna que o framework grava o identificador do usuário
+autenticado, e `users.id` é um UUID: um `BIGINT` não comporta o UUID textual, a
+gravação da sessão falha sob o modo estrito do MySQL e, por consequência, o
+fluxo de autenticação não consegue persistir a sessão. A coluna continua
+anulável, indexada e **sem foreign key**, preservando o acoplamento fraco da
+tabela de sessões; todos os demais campos seguem o padrão.
 
 ### 7.2 Tabelas de domínio
 
@@ -546,7 +554,8 @@ recebido sem foreign key é o que permite registrar essa rejeição.
 **Tabelas de infraestrutura**
 
 Além de `sessions`, `jobs` e `failed_jobs`, o esquema inclui `cache` e
-`cache_locks`, no formato padrão do Laravel. Elas sustentam o lock atômico de
+`cache_locks`, no formato padrão do Laravel — ressalvado o `sessions.user_id` em
+`CHAR(36)` descrito em §7.1. Elas sustentam o lock atômico de
 conclusão de upload descrito em §12.2 — a razão de o driver de cache ser
 `database` e não `file`: um lock em arquivo não é compartilhado entre os
 containers `api`, `worker` e `simulator-worker`, que são processos distintos.
@@ -670,7 +679,7 @@ estrutural — `422`, sem reserva, sem linha.
 ```
 BEGIN
   INSERT webhook_events (event_id, received_video_id, video_attempt_id = NULL,
-                         received_status, outcome = NULL)
+                         received_status, outcome = NULL, processed_at = now())
     │
     ├── duplicate key ──▶ SELECT ... da linha existente
     │       (bloqueia ate a transacao concorrente terminar)
@@ -701,6 +710,10 @@ Quatro garantias sustentam esse desenho:
 desfecho registrado. Não há comparação de conteúdo, e portanto não há caminho
 pelo qual uma segunda entrega do mesmo `event_id` produza efeito diferente da
 primeira — que é o que RN-IDM-002 e RN-IDM-003 exigem.
+
+`processed_at` faz parte do próprio `INSERT` da reserva: a coluna é obrigatória
+e não tem default, então não há um segundo momento em que preenchê-la. O
+instante registrado é o da avaliação do evento, que é quando a linha nasce.
 
 **`outcome` nulo só existe dentro da transação de reserva.** Nenhuma linha
 commitada fica sem desfecho: os dois caminhos conclusivos gravam `outcome` antes

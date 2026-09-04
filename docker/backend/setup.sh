@@ -5,9 +5,9 @@
 # Nao e um servico: roda, termina e sai. O Compose so libera `api` — e, atras
 # dele, `web` — depois que este script encerra com codigo zero (plan §16.2).
 #
-# Ordem: storage primeiro, banco depois. As duas etapas sao independentes, e
-# falhar cedo no storage evita migrar um banco que a aplicacao nao conseguiria
-# usar de qualquer forma.
+# Ordem: storage primeiro, banco depois — migrations e, em seguida, os dados de
+# avaliacao. Storage e banco sao independentes, e falhar cedo no storage evita
+# migrar um banco que a aplicacao nao conseguiria usar de qualquer forma.
 #
 # Idempotente por construcao: bucket ja existente e aceito, a politica de CORS e
 # reaplicada e conferida, e o migrador executa apenas o que ainda falta. Nenhuma
@@ -22,8 +22,9 @@
 #     imagem, e aqui o autoload e apenas conferido. Instala-las na inicializacao
 #     tornaria a subida dependente da rede. O comando unico que faz essa
 #     preparacao e consolidado na T012;
-#   - popular dados — os registros de avaliacao pertencem ao seeder da T022;
-#   - recriar schema ou desfazer migracao — este script nunca destroi estado.
+#   - recriar schema, desfazer migracao ou sobrescrever dado existente — este
+#     script nunca destroi estado. O seeder insere o que falta e nao toca no que
+#     ja esta la, o que o torna seguro em toda subida do ambiente.
 
 set -eu
 
@@ -76,5 +77,19 @@ APP_ROOT="$APP_ROOT" "$BOOTSTRAP_STORAGE"
 # ---------------------------------------------------------------------------
 php "$APP_ROOT/artisan" migrate --force --no-interaction
 
-echo "setup: banco e storage preparados"
+# ---------------------------------------------------------------------------
+# 4. Dados de avaliacao.
+#
+# As contas de demonstracao, o curso da jornada e o cenario dedicado de falha.
+# O seeder verifica cada registro pela chave primaria fixa e insere apenas o que
+# falta, entao repetir a subida nao duplica nada nem reescreve o que a
+# demonstracao tiver alterado.
+#
+# `set -eu` no topo garante o resto: uma falha aqui interrompe o script com
+# codigo diferente de zero, e o Compose nao libera `api`, `worker` e
+# `simulator-worker` sobre um banco preparado pela metade.
+# ---------------------------------------------------------------------------
+php "$APP_ROOT/artisan" db:seed --force --no-interaction
+
+echo "setup: banco, storage e dados de avaliacao preparados"
 exit 0

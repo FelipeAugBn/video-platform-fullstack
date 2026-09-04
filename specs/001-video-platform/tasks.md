@@ -591,7 +591,7 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
 
 ## Fase 3 — Persistência e dados de avaliação
 
-- [ ] **T022** Esquema completo e dados de avaliação
+- [x] **T022** Esquema completo e dados de avaliação
   - **Objetivo:** o banco inteiro aplicando e revertendo, com o cenário de
     avaliação semeado pela subida do ambiente.
   - **Arquivos previstos:** migrations de infraestrutura e de domínio,
@@ -637,7 +637,13 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
     domínio existe.
 
     **Infraestrutura.** Apenas `sessions`, `cache`, `cache_locks`, `jobs` e
-    `failed_jobs`, no esquema padrão do framework. **`job_batches` não é
+    `failed_jobs`, no esquema padrão do framework — com uma exceção declarada:
+    `sessions.user_id` nasce `CHAR(36)` anulável, indexado, com charset `ascii`,
+    collation `ascii_bin` e **sem** chave estrangeira, porque é ali que o
+    framework grava o identificador do usuário autenticado e `users.id` é um
+    UUID; o `BIGINT` da migration padrão não comporta o UUID textual, a gravação
+    da sessão falharia sob o modo estrito do MySQL e o fluxo de autenticação não
+    conseguiria persistir a sessão (plan §7.1). **`job_batches` não é
     recriada** — batching não é usado por decisão alguma do plano — e
     **`password_reset_tokens` também não**, porque recuperação de senha está fora
     de escopo. O driver de cache é `database` e não `file`, porque o lock de
@@ -748,7 +754,8 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
   - **Arquivos previstos:** `backend/config/sanctum.php`,
     `backend/config/session.php`, `backend/config/cors.php`, `.env.example`;
     rotas, controller e requests em `Identity/Interfaces/Http/`; middleware de
-    perfil; handler de exceções ajustado.
+    perfil; handler de exceções ajustado; `backend/app/Models/User.php` e
+    `backend/database/factories/UserFactory.php`.
   - **Requisitos:** ABERTO-001; RF-AUT-001, RF-AUT-005, RF-AUT-006; RN-AUT-001,
     RN-AUT-002; RF-UI-013, RF-UI-014; AC-UI-003; plan §§9, 10.3, 10.4.
   - **Implementação:** Sanctum em modo SPA, driver de sessão em banco, cookie
@@ -787,6 +794,47 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
     Form Requests — **sem acrescentar dependência só para traduzir**, o que
     contrariaria o critério de não somar componente sem necessidade
     demonstrada. Um teste afirma que `errors` devolve mensagem em português.
+
+    **O `User` e sua factory ainda são os do esqueleto, e alinhá-los ao esquema
+    é o primeiro passo desta tarefa** — antes dos testes e dos endpoints de
+    autenticação, que dependem de conseguir criar usuários. A T022 gravou a
+    tabela definitiva: chave `CHAR(36)` não incremental, `role` obrigatório, e
+    **sem** `email_verified_at` nem `remember_token`.
+
+    O desencontro é concreto e vale descrever sem exagero. Uma consulta por
+    e-mail funciona com o model atual; o que não funciona é o resto:
+
+    - o model declara metadados inadequados para uma chave UUID — ele pressupõe
+      identificador numérico auto-incremento;
+    - a factory tenta gravar `email_verified_at` e `remember_token`, colunas que
+      não existem mais;
+    - a factory não fornece `role`, que é obrigatório, nem um identificador que
+      o esquema aceite.
+
+    Somando os três: **criar usuários e escrever testes de autenticação fica
+    incompatível com o esquema** enquanto as duas classes não forem ajustadas.
+
+    O ajuste, com uma regra que organiza o resto — **quem gera o identificador é
+    o model, e só ele**:
+
+    - o model adota o trait `HasUuids` do framework, que nesta versão gera
+      **UUIDv7** e já declara a chave como string não incremental, dispensando
+      gerador próprio e configuração manual de `$keyType` e `$incrementing`;
+    - a **factory não declara nem gera `id`**. Ela deixa a geração para o model,
+      e é isso que evita duas fontes produzindo o mesmo identificador — duas
+      fontes divergem em silêncio, e a que estiver errada só aparece quando
+      alguém compara os valores;
+    - a factory usa um `role` válido como padrão e oferece **estados
+      explícitos** `producer` e `consumer`, os únicos que o enum do banco
+      aceita;
+    - `fillable`, `hidden` e `casts` passam a citar **apenas colunas
+      existentes**, com `role` onde for necessário, e as referências a
+      `email_verified_at` e `remember_token` saem das duas classes.
+
+    Os testes desta tarefa criam usuários **pelos dois estados da factory**, e
+    não por escrita direta: é o que prova que o model persiste de verdade contra
+    o esquema, que o identificador **produzido pelo model** é UUIDv7 e que os
+    dois perfis funcionam.
 
     Ausência ou expiração de sessão produz `401`; perfil sem permissão produz
     `403`. Cada um com código funcional estável — é o que permite ao frontend
@@ -1165,7 +1213,12 @@ fase inteira roda com o callback sendo exercido diretamente pelos testes.
     sintaticamente UUID. Carga inválida responde `422` **sem criar reserva**.
 
     **Idempotência e efeito.** Tentar inserir a reserva com `outcome` nulo dentro
-    da transação. Colisão na unicidade leva à leitura do desfecho registrado, que
+    da transação. `processed_at` entra **no próprio `INSERT` da reserva**, e não
+    numa escrita posterior: a coluna é obrigatória e não tem default, então uma
+    linha não pode existir sem ela. Um teste confirma que todo evento concluído
+    tem `processed_at` preenchido.
+
+    Colisão na unicidade leva à leitura do desfecho registrado, que
     é **repetido sem olhar o corpo recebido** — o `event_id` é a única chave, e o
     conteúdo da reentrega não reabre a decisão. Inserção bem-sucedida resolve a
     tentativa e avalia contra o estado travado por `FOR UPDATE`: transição válida
