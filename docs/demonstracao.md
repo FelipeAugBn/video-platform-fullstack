@@ -10,9 +10,45 @@ real neste repositório.
 
 ## O que já existe
 
-O banco completo e os dados de avaliação. Ainda **não** existem endpoints de
-negócio, telas, autenticação ou upload — o que este documento descreve é o ponto
-de partida sobre o qual essas funcionalidades serão construídas.
+O banco completo, os dados de avaliação e a **autenticação**: as três contas
+abaixo entram pela API, a sessão é mantida por cookie e cada perfil é reconhecido.
+
+Ainda **não** existem telas nem endpoints de negócio — nenhum curso, aula ou
+vídeo é criado ou consultado pela API neste momento. O que este documento
+descreve é o ponto de partida sobre o qual essas funcionalidades serão
+construídas.
+
+## Endpoints disponíveis
+
+| Método e rota | O que faz |
+| --- | --- |
+| `GET /sanctum/csrf-cookie` | Entrega o cookie de proteção que as operações seguintes exigem |
+| `POST /api/auth/login` | Autentica e abre a sessão |
+| `GET /api/auth/me` | Devolve quem está autenticado na sessão atual |
+| `POST /api/auth/logout` | Encerra a sessão |
+
+A API responde em `http://localhost:8080`.
+
+Três detalhes do comportamento, úteis para quem for avaliar:
+
+- **Uma operação que altera estado exige o cookie de proteção.** Sem ele, a
+  resposta é `419` com o código `CSRF_TOKEN_MISMATCH`, e nada é executado. É por
+  isso que o primeiro passo é sempre buscar o cookie.
+- **Credencial recusada responde sempre igual.** E-mail que não existe e senha
+  errada produzem exatamente a mesma resposta `422`. A API não diz qual dos dois
+  falhou, de propósito: dizer transformaria a tela de login num verificador de
+  quem tem conta.
+- **Sem sessão, a resposta é `401`**, que é diferente de `403`. O primeiro
+  significa "entre de novo"; o segundo, "você está autenticado, mas este perfil
+  não pode".
+
+### Percorrendo o fluxo sem interface
+
+Ainda não há tela de login. Para exercitar a jornada agora, qualquer cliente HTTP
+que guarde cookies serve — importe a documentação da API quando ela existir, ou
+use um cliente de linha de comando com um arquivo de cookies. A sequência é:
+buscar o cookie de proteção, enviar o login com o valor desse cookie no cabeçalho
+`X-XSRF-TOKEN`, consultar `GET /api/auth/me` e encerrar com `POST /api/auth/logout`.
 
 ## Como os dados são preparados
 
@@ -52,7 +88,11 @@ VideoDemo2026!
 | `other-producer@video-platform.test` | produtor | Existe para comprovar o isolamento entre produtores |
 
 A senha aparece em texto puro aqui porque é uma credencial local e fictícia,
-criada para a avaliação. No banco ela é gravada apenas como hash.
+criada para a avaliação. No banco ela é gravada apenas como hash, e nenhuma
+resposta da API a devolve.
+
+Este é o único lugar onde as credenciais de demonstração estão documentadas; os
+demais documentos apontam para cá em vez de repeti-las.
 
 ## Os três cenários preparados
 

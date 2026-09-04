@@ -33,6 +33,7 @@ enum Failure: string
     case FORBIDDEN = 'FORBIDDEN';
     case NOT_FOUND = 'NOT_FOUND';
     case METHOD_NOT_ALLOWED = 'METHOD_NOT_ALLOWED';
+    case CSRF_TOKEN_MISMATCH = 'CSRF_TOKEN_MISMATCH';
     case CONFLICT = 'CONFLICT';
     case SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE';
     case INTERNAL_ERROR = 'INTERNAL_ERROR';
@@ -57,6 +58,7 @@ enum Failure: string
             self::FORBIDDEN => 'Acesso negado',
             self::NOT_FOUND => 'Recurso nao encontrado',
             self::METHOD_NOT_ALLOWED => 'Metodo nao permitido',
+            self::CSRF_TOKEN_MISMATCH => 'Token de seguranca invalido',
             self::CONFLICT => 'Conflito com o estado atual',
             self::SERVICE_UNAVAILABLE => 'Servico temporariamente indisponivel',
             self::INTERNAL_ERROR => 'Erro interno',
@@ -79,6 +81,8 @@ enum Failure: string
             self::NOT_FOUND => 'O recurso solicitado nao existe ou nao esta disponivel.',
             self::METHOD_NOT_ALLOWED => 'Este endereco existe, mas nao aceita este metodo. '
                 .'O cabecalho Allow da resposta lista os metodos aceitos.',
+            self::CSRF_TOKEN_MISMATCH => 'O token de seguranca da requisicao esta ausente ou expirou. '
+                .'Obtenha um novo token e repita a operacao.',
             self::CONFLICT => 'A operacao nao e compativel com o estado atual do recurso.',
             self::SERVICE_UNAVAILABLE => 'Tente novamente em alguns instantes.',
             self::INTERNAL_ERROR => 'Nao foi possivel concluir a operacao.',

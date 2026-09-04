@@ -748,7 +748,7 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
 
 ## Fase 4 — Autenticação e autorização
 
-- [ ] **T030** Sessão, endpoints de autenticação e autorização por perfil
+- [x] **T030** Sessão, endpoints de autenticação e autorização por perfil
   - **Objetivo:** as duas personas entram pela API, com sessão em cookie, e cada
     rota exige o perfil certo.
   - **Arquivos previstos:** `backend/config/sanctum.php`,
@@ -756,8 +756,9 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
     rotas, controller e requests em `Identity/Interfaces/Http/`; middleware de
     perfil; handler de exceções ajustado; `backend/app/Models/User.php` e
     `backend/database/factories/UserFactory.php`.
-  - **Requisitos:** ABERTO-001; RF-AUT-001, RF-AUT-005, RF-AUT-006; RN-AUT-001,
-    RN-AUT-002; RF-UI-013, RF-UI-014; AC-UI-003; plan §§9, 10.3, 10.4.
+  - **Requisitos:** ABERTO-001; RF-AUT-001, RF-AUT-005 a RF-AUT-009; RN-AUT-001,
+    RN-AUT-002, RN-AUT-005; RF-UI-013, RF-UI-014; AC-UI-003; RNF-010;
+    plan §§9, 10.3, 10.4.
   - **Implementação:** Sanctum em modo SPA, driver de sessão em banco, cookie
     `HttpOnly`, `SameSite=Lax`, `Secure` sob HTTPS. Três configurações distintas,
     não uma lista repetida: `SANCTUM_STATEFUL_DOMAINS` com hosts e porta,
@@ -836,18 +837,74 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
     o esquema, que o identificador **produzido pelo model** é UUIDv7 e que os
     dois perfis funcionam.
 
+    **Credencial inválida responde `422`, sempre igual** (RF-AUT-008). E-mail
+    inexistente e senha incorreta produzem a mesma resposta — mesmo status, mesmo
+    `code`, mesmo campo e mesmo texto genérico —, porque diferenciá-las
+    transformaria o login num verificador de cadastro. O `401` fica reservado à
+    ausência de sessão.
+
+    **Token CSRF ausente ou inválido responde `419`** com o código
+    `CSRF_TOKEN_MISMATCH`, em `problem+json`, e a operação **não é executada**
+    (RF-AUT-009). O código entra no catálogo compartilhado junto do mapeamento de
+    status; os códigos já existentes são preservados, e a falha de CSRF nunca vira
+    `500`.
+
+    **A chave de criptografia passa a ser gerada pela subida oficial do
+    ambiente.** Um script versionado detecta chave ausente ou vazia no arquivo de
+    ambiente da raiz, gera 32 bytes aleatórios dentro da imagem do backend — o
+    host não tem PHP —, grava apenas aquela linha e **nunca substitui uma chave
+    existente**. O valor não é impresso em nenhuma saída, e nenhum arquivo de
+    exemplo carrega chave funcional. A preparação do ambiente recusa subir com
+    chave ausente ou malformada, antes de tocar em banco ou storage.
+
     Ausência ou expiração de sessão produz `401`; perfil sem permissão produz
     `403`. Cada um com código funcional estável — é o que permite ao frontend
     distinguir reautenticar de não pode. O `404` de recurso alheio é acrescentado
     em T034, quando existir recurso para ocultar.
-  - **Testes/validação:**
-    `docker compose run --rm api php artisan test --filter=Auth`, cobrindo sessão
-    persistida no MySQL, os três endpoints, os dois sentidos do perfil, a
-    distinção entre `401` e `403` por status e por código, e `errors` devolvendo
-    mensagem de validação em português.
+  - **Testes/validação:** a suíte roda com **sessão em banco**, e não em
+    memória: uma sessão que não grava linha não prova nada sobre a coluna
+    `user_id` em `CHAR(36)` nem sobre a persistência que a autenticação depende.
+
+    `docker compose run --rm api php artisan test --filter=Auth`, cobrindo: os
+    dois estados da factory e o identificador UUIDv7 gerado pelo model; login das
+    duas contas de demonstração; sessão gravada no MySQL com o UUID completo;
+    regeneração do identificador da sessão ao autenticar; o cookie anterior
+    deixando de abrir a sessão após o logout; respostas idênticas para e-mail
+    inexistente e senha incorreta; mensagens de validação em português; ausência
+    de senha e de qualquer segredo nas respostas; `401` sem sessão; `403` para
+    perfil incorreto; cada perfil alcançando a própria área; `419` com token
+    ausente ou inválido, sem executar a operação; preflight de CORS autorizando a
+    origem exata com credenciais e recusando a de terceiro; ausência de
+    `personal_access_tokens` e o esquema preservado em treze tabelas.
+
+    **O teste de CSRF precisa desligar o desvio de ambiente.** O middleware do
+    framework libera a requisição sem olhar o token quando a aplicação está em
+    ambiente de teste; um teste que envie um POST sem token e receba sucesso
+    comprova o desvio, não a proteção. A suíte troca o ambiente antes da
+    requisição, e uma asserção confirma que o desvio ficou realmente desligado.
+
+    As rotas usadas para exercitar o middleware de perfil são registradas **pela
+    própria suíte** e não existem no arquivo de rotas da aplicação.
+
+    Complementando a suíte, um **fluxo HTTP real** contra o serviço web, com
+    cookie jar: obter o cookie CSRF, provar o `419` sem token, autenticar com o
+    token correto, consultar a sessão, encerrar e confirmar que a consulta volta a
+    responder `401`; comparar as duas recusas de credencial; e conferir o CORS das
+    duas origens. É onde a troca de cookies acontece entre processos separados,
+    sem container compartilhado.
+
+    Para a chave: cenários em arquivos temporários — variável vazia, linha
+    ausente e chave já preenchida —, provando que ela é criada quando falta,
+    preservada quando existe, decodifica para exatamente 32 bytes e nunca aparece
+    na saída. Depois, `make up` duas vezes, confirmando os sete serviços
+    permanentes, o `setup` em `Exited (0)` e a mesma chave preservada.
   - **Depende de:** T022.
-  - **Critério de conclusão:** login e logout funcionando com sessão em cookie,
-    perfis separados e `401` distinguível de `403`.
+  - **Critério de conclusão:** autenticação e logout por sessão em cookie, com a
+    sessão persistida no MySQL; `401` e `403` distinguíveis por status e por
+    código; credencial inválida sempre no mesmo `422`; token de CSRF ausente ou
+    inválido em `419` sem executar a operação; chave da aplicação gerada na
+    subida e preservada nas seguintes; e o esquema sem tabela de tokens
+    pessoais.
 
 > **Checkpoint da Fase 4**
 > **Passa a funcionar:** login e logout pela API com sessão em cookie, rotas
@@ -1388,6 +1445,11 @@ fase inteira roda com o callback sendo exercido diretamente pelos testes.
     consumidor e reprodução —, com schemas compartilhados de envelope, paginação e
     problema, exemplos por operação e os corpos de erro. Sem prefixo de versão.
 
+    **As operações mutantes protegidas por sessão declaram o `419`**, com o corpo
+    de problema e o código `CSRF_TOKEN_MISMATCH`. Sem isso, quem gerar cliente a
+    partir do contrato trataria a resposta como falha desconhecida — e é
+    justamente a que tem tratamento próprio: renovar o token e repetir uma vez.
+
     Esta é a **única** tarefa de contrato: base e consolidação viraram uma
     entrega só, feita depois de os endpoints existirem. Documentar rota a rota
     enquanto elas nascem obrigaria a reabrir o mesmo arquivo em quase toda tarefa
@@ -1441,6 +1503,15 @@ fase inteira roda com o callback sendo exercido diretamente pelos testes.
     antes da primeira requisição mutante, reenvia o valor no header e converte
     `application/problem+json` num erro tipado com status e código. Nenhum segredo
     no código cliente.
+
+    **Tratamento do `419`.** Diante da primeira resposta `419`
+    `CSRF_TOKEN_MISMATCH`, o cliente busca um novo cookie CSRF e repete a
+    requisição **uma única vez**. Se a repetição também falhar, o erro é entregue
+    à interface como qualquer outro. O limite é obrigatório: sem ele, um `419`
+    persistente — sessão encerrada no servidor, configuração errada de domínio —
+    produziria um laço infinito de renovação e reenvio, e a tela ficaria travada
+    em vez de explicar o problema. Um teste cobre os dois desfechos: a repetição
+    que resolve e a que não resolve.
 
     `useState` guarda **apenas** sessão e usuário — sem Pinia. `401` em qualquer
     chamada dispara o estado de sessão expirada, distinto de acesso negado.

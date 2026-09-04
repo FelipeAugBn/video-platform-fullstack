@@ -43,7 +43,15 @@
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
-        <env name="SESSION_DRIVER" value="array"/>
+        <!--
+            Sem `SESSION_DRIVER=array` aqui, de proposito.
+
+            A sessao e o mecanismo de autenticacao desta entrega (plan §9.1), e
+            uma sessao em memoria nao prova nada sobre a que roda em producao:
+            nao grava linha, nao exercita a coluna `user_id` em CHAR(36) e nao
+            demonstra que o registro sobrevive ao container. A suite usa o driver
+            `database` configurado pela aplicacao, contra o MySQL de testes.
+        -->
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>

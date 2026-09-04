@@ -472,16 +472,24 @@ final class HttpContractTest extends TestCase
     public function test_nenhuma_rota_de_contrato_existe_fora_da_suite(): void
     {
         // Este teste nao chama `registrarRotas()`. A aplicacao aqui e a mesma
-        // que sobe em execucao normal.
+        // que sobe em execucao normal, e a lista abaixo e fechada de proposito:
+        // uma rota nova que apareca sem passar por uma tarefa faz este teste
+        // falhar, que e o comportamento desejado.
         $uris = collect(Route::getRoutes()->getRoutes())
-            ->map(fn ($rota) => $rota->uri())
+            ->map(fn ($rota) => (string) $rota->uri())
+            ->filter(fn (string $uri) => str_starts_with($uri, 'api/'))
+            ->unique()
+            ->values()
             ->all();
 
-        $this->assertEmpty(
-            array_filter($uris, fn (string $uri) => str_starts_with($uri, 'api/')),
-            'Nenhuma rota deve existir sob o prefixo da API nesta etapa.',
+        $this->assertEqualsCanonicalizing(
+            ['api/auth/login', 'api/auth/me', 'api/auth/logout'],
+            $uris,
+            'Sob o prefixo da API existem apenas as rotas de autenticacao nesta etapa.',
         );
 
+        // As rotas que a propria suite registra para exercitar o contrato
+        // continuam sem existir na aplicacao.
         $this->getJson('/api/'.self::PREFIXO.'/recurso')->assertNotFound();
     }
 
