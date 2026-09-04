@@ -329,7 +329,7 @@ neste documento começa antes de ele ser validado e consolidado.
   - **Critério de conclusão:** storage saudável; bucket ainda não existe, e isso é
     esperado.
 
-- [ ] **T009** `[P]` Imagem e scaffolding do Nuxt 4
+- [x] **T009** `[P]` Imagem e scaffolding do Nuxt 4
   - **Objetivo:** aplicação Nuxt instalada e buildando, ainda sem telas.
   - **Arquivos previstos:** `docker/frontend/Dockerfile`, árvore de `frontend/`,
     `frontend/package.json`, `frontend/nuxt.config.ts`.
@@ -1599,8 +1599,8 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 - [ ] **T078** Configuração do Nuxt, Nuxt UI e Tailwind
   - **Objetivo:** base do frontend pronta, com a biblioteca de componentes
     integrada.
-  - **Arquivos previstos:** `frontend/nuxt.config.ts`, `frontend/app.vue`,
-    `frontend/assets/css/`.
+  - **Arquivos previstos:** `frontend/nuxt.config.ts`, `frontend/app/app.vue`,
+    `frontend/app/assets/css/`.
   - **Requisitos:** ABERTO-008, ABERTO-009; RF-UI-016; plan §§15.1, 15.5.
   - **Implementação:** `ssr: false` já definido em T009, TypeScript estrito,
     Composition API. Nuxt UI v4 sobre Tailwind CSS 4, como única biblioteca
@@ -1628,7 +1628,7 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 - [ ] **T080** Tipos derivados do contrato completo
   - **Objetivo:** o frontend usa exatamente os formatos que o backend declara.
-  - **Arquivos previstos:** `frontend/types/api.ts`.
+  - **Arquivos previstos:** `frontend/app/types/api.ts`.
   - **Requisitos:** ABERTO-010; RF-UI-017; plan §15.3.
   - **Implementação:** tipos para envelope, paginação, corpo de problema e todos
     os recursos, derivados do **OpenAPI consolidado em T076** — que já cobre
@@ -1641,7 +1641,7 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 - [ ] **T081** Composable `useApi`
   - **Objetivo:** um único ponto que fala HTTP, com credenciais e CSRF.
-  - **Arquivos previstos:** `frontend/composables/useApi.ts`.
+  - **Arquivos previstos:** `frontend/app/composables/useApi.ts`.
   - **Requisitos:** ABERTO-001; RF-AUT-006; RF-UI-009 a 012; plan §15.3.
   - **Implementação:** envia credenciais, obtém o cookie CSRF antes da primeira
     requisição mutante, reenvia o valor no header, e converte
@@ -1655,8 +1655,8 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 - [ ] **T082** Composable `useAuth` e estado de sessão
   - **Objetivo:** sessão e usuário como único estado global.
-  - **Arquivos previstos:** `frontend/composables/useAuth.ts`,
-    `frontend/middleware/auth.ts`.
+  - **Arquivos previstos:** `frontend/app/composables/useAuth.ts`,
+    `frontend/app/middleware/auth.ts`.
   - **Requisitos:** ABERTO-008; RF-AUT-005; RF-UI-014; AC-UI-003; plan §15.2.
   - **Implementação:** `useState` guarda **apenas** sessão e usuário. Sem Pinia.
     `401` em qualquer chamada dispara o estado de sessão expirada, distinto de
@@ -1669,8 +1669,8 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 - [ ] **T083** Tratamento uniforme de erro e estados de tela
   - **Objetivo:** componentes que traduzem erro em estado visível, reutilizados
     por todas as telas.
-  - **Arquivos previstos:** `frontend/components/ui/`, utilitário de mapeamento de
-    erro.
+  - **Arquivos previstos:** `frontend/app/components/ui/`, utilitário de
+    mapeamento de erro.
   - **Requisitos:** RF-UI-001 a 003, RF-UI-008 a 013, RF-UI-015; AC-UI-002.
   - **Implementação:** carregamento, lista vazia, ação em andamento, sucesso,
     validação por campo, conflito de regra, indisponibilidade da API, erro de
@@ -1697,7 +1697,7 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 - [ ] **T084** Tela de login
   - **Objetivo:** as duas personas entram pela interface.
-  - **Arquivos previstos:** `frontend/pages/login.vue`.
+  - **Arquivos previstos:** `frontend/app/pages/login.vue`.
   - **Requisitos:** RF-AUT-001; RF-UI-003, RF-UI-009; AC-UI-001.
   - **Implementação:** formulário acessível, com rótulos e foco. Erro de
     credencial sem revelar se o e-mail existe. Após entrar, encaminha conforme o
@@ -1709,7 +1709,7 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 - [ ] **T085** Lista e criação de cursos
   - **Objetivo:** o produtor vê os próprios cursos e cria um novo.
-  - **Arquivos previstos:** `frontend/pages/producer/courses/index.vue`,
+  - **Arquivos previstos:** `frontend/app/pages/producer/courses/index.vue`,
     componentes de lista e formulário.
   - **Requisitos:** RF-CUR-001, RF-CUR-002; RF-UI-001, RF-UI-002, RF-UI-008,
     RF-UI-009; AC-PROD-001, AC-UI-001.
@@ -1722,7 +1722,7 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 - [ ] **T086** Detalhe do curso e sua estrutura
   - **Objetivo:** a árvore de módulos e aulas visível e ordenada.
-  - **Arquivos previstos:** `frontend/pages/producer/courses/[id].vue`,
+  - **Arquivos previstos:** `frontend/app/pages/producer/courses/[id].vue`,
     componentes de módulo e aula.
   - **Requisitos:** RF-EST-001, RF-EST-002, RF-EST-004; RF-UI-001, RF-UI-002.
   - **Implementação:** exibe estado do curso, módulos e aulas na ordem, com o
@@ -1746,7 +1746,7 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 - [ ] **T088** Composable `useMultipartUpload`
   - **Objetivo:** a lógica de envio em partes, isolada e testável.
-  - **Arquivos previstos:** `frontend/composables/useMultipartUpload.ts`.
+  - **Arquivos previstos:** `frontend/app/composables/useMultipartUpload.ts`.
   - **Requisitos:** RF-UPL-003; RF-UI-004; RNF-001; AC-VID-001; plan §§11.2, 11.4.
   - **Implementação:** particiona em 64 MiB, mantém **até três** transferências
     concorrentes, pede a URL de cada parte à API, envia direto ao storage e guarda
@@ -1773,7 +1773,7 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 - [ ] **T090** Composable `useVideoStatus` com polling
   - **Objetivo:** a tela acompanha o processamento sem conexão permanente.
-  - **Arquivos previstos:** `frontend/composables/useVideoStatus.ts`.
+  - **Arquivos previstos:** `frontend/app/composables/useVideoStatus.ts`.
   - **Requisitos:** RF-VID-002; RF-UI-005 a 007; AC-UI-004; plan §15.2.
   - **Implementação:** consulta a cada **três segundos** enquanto o estado é
     transitório — `pending`, `uploading`, `uploaded`, `processing`. Para ao
@@ -1827,7 +1827,7 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 - [ ] **T093** Lista de cursos concedidos
   - **Objetivo:** o consumidor vê o que pode assistir.
-  - **Arquivos previstos:** `frontend/pages/catalog/index.vue`.
+  - **Arquivos previstos:** `frontend/app/pages/catalog/index.vue`.
   - **Requisitos:** RF-CONS-001, RF-CONS-002, RF-CONS-005; RF-UI-001, RF-UI-002.
   - **Implementação:** apenas cursos concedidos e disponíveis. Lista vazia com
     mensagem própria, distinta de erro.
@@ -1838,7 +1838,7 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 - [ ] **T094** Navegação pela estrutura publicada
   - **Objetivo:** percorrer módulos e aulas na ordem, sem ver rascunho.
-  - **Arquivos previstos:** `frontend/pages/catalog/courses/[id].vue`.
+  - **Arquivos previstos:** `frontend/app/pages/catalog/courses/[id].vue`.
   - **Requisitos:** RF-CONS-003; RN-AUT-004; AC-CONS-004.
   - **Implementação:** renderiza apenas o que a API devolve, que já exclui
     rascunhos. Nada de filtrar no cliente.
@@ -1849,7 +1849,7 @@ Esta fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 - [ ] **T095** Tela de reprodução
   - **Objetivo:** abrir a aula e assistir.
-  - **Arquivos previstos:** `frontend/pages/catalog/lessons/[id].vue`.
+  - **Arquivos previstos:** `frontend/app/pages/catalog/lessons/[id].vue`.
   - **Requisitos:** RF-CONS-004; RF-PLB-005; AC-CONS-001.
   - **Implementação:** solicita os dados de reprodução e alimenta um elemento de
     vídeo do navegador com a URL temporária. Sem player avançado — fora do escopo.
