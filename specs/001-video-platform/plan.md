@@ -876,6 +876,7 @@ mensagem de exceção ou detalhe interno (RN-AUT-005).
 | `401` | Não autenticado ou sessão expirada |
 | `403` | Autenticado, perfil não permitido para a rota |
 | `404` | Recurso inexistente, de outro produtor, ou curso sem concessão |
+| `405` | Método HTTP não permitido para uma rota existente |
 | `409` | Conflito de regra: publicar sem vídeo pronto, novo envio sobre tentativa ativa, callback permanentemente incompatível |
 | `422` | Validação de entrada; também carga de webhook estruturalmente inválida |
 | `503` | Falha transitória ao processar o callback, com `Retry-After`; ou storage transitoriamente indisponível na conclusão |

@@ -7,12 +7,16 @@ namespace Tests\Feature;
 use Tests\TestCase;
 
 /**
- * O endpoint de saude e o unico ponto HTTP que existe antes das rotas da API.
+ * O endpoint de saude e a verificacao HTTP definitiva deste ambiente.
  *
- * Ele e o sinal HTTP temporario usado pelo healthcheck do servico `web`
- * enquanto `/api/health` ainda nao existe. Um teste aqui protege esse sinal —
- * se a rota deixar de responder, a falha aparece na suite, e nao como um
- * container preso em `starting` sem explicacao.
+ * E ele que o healthcheck do servico `web` consulta, e nao ha outra rota
+ * prevista para esse papel: uma segunda verificacao de prontidao seria um
+ * segundo lugar afirmando a mesma coisa, livre para divergir. Fica fora do
+ * prefixo da API de proposito — prova que a aplicacao responde, e nada a
+ * respeito das dependencias dela (plan §16.2).
+ *
+ * Um teste aqui protege esse sinal: se a rota deixar de responder, a falha
+ * aparece na suite, e nao como um container preso em `starting` sem explicacao.
  */
 final class HealthEndpointTest extends TestCase
 {

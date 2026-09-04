@@ -271,6 +271,16 @@ services:
     # o `setup` recebe.
     environment:
       <<: *backend-environment
+      # Schema da suite de testes, e so aqui.
+      #
+      # E deste servico que nascem os containers descartaveis em que a suite
+      # roda, entao e ele que precisa da variavel. `setup`, consumidores e
+      # interface nunca executam teste, e entregar a eles o nome do banco de
+      # testes so ampliaria a chance de alguem escrever nele por engano.
+      #
+      # O bootstrap da suite recusa a execucao se esta variavel faltar, estiver
+      # vazia ou coincidir com o banco da aplicacao (plan §17.2).
+      DB_TEST_DATABASE: ${DB_TEST_DATABASE:?defina DB_TEST_DATABASE no .env da raiz}
 
     volumes:
       # O codigo continua chegando por bind mount: edicao no host aparece no

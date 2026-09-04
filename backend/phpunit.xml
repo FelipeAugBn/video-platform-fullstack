@@ -23,8 +23,23 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <!--
+            Sem `DB_CONNECTION` e sem `DB_DATABASE` aqui, de proposito.
+
+            A conexao e o schema sao escolhidos por `Tests\TestCase`, antes de
+            a aplicacao de teste ser criada. O nome do banco de testes vem de
+            `DB_TEST_DATABASE` e nunca esta escrito neste arquivo: fixa-lo aqui
+            reintroduziria o problema que a barreira existe para evitar — um
+            nome que continua valendo depois que o ambiente muda.
+
+            Declarar aqui tambem obrigaria os testes unitarios de dominio a ter
+            banco configurado. Eles sao PHP puro e nao inicializam o framework.
+
+            A suite roda contra MySQL real. Banco em memoria tem outro
+            comportamento de lock, constraint e transacao, e e justamente esse
+            comportamento que os testes de idempotencia precisam exercer
+            (plan §17.2).
+        -->
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>

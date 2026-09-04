@@ -487,17 +487,29 @@ neste documento começa antes de ele ser validado e consolidado.
 O contrato de resposta é estabelecido **antes** do primeiro endpoint, para que
 nenhuma rota nasça num formato que depois precise ser reescrito.
 
-- [ ] **T014** Arquitetura base, qualidade e infraestrutura de contrato HTTP
+- [x] **T014** Arquitetura base, qualidade e infraestrutura de contrato HTTP
   - **Objetivo:** a árvore do backend refletindo a arquitetura decidida, com
     ferramental de qualidade rodando e o contrato de resposta pronto antes do
     primeiro endpoint.
   - **Arquivos previstos:** `backend/app/Identity/`, `backend/app/Catalog/`,
-    `backend/app/Video/`, `backend/app/Shared/`, cada uma com `Domain/`,
-    `Application/`, `Infrastructure/` e `Interfaces/`; `backend/composer.json`;
-    `backend/pint.json`; `backend/phpunit.xml`;
-    `backend/app/Shared/Domain/Exception/`;
-    `backend/app/Shared/Interfaces/Http/` com resource base, trait de paginação,
-    handler de exceções e catálogo de códigos funcionais.
+    `backend/app/Video/` e `backend/app/Shared/`, cada uma com `Domain/`,
+    `Application/`, `Infrastructure/` e `Interfaces/`;
+    `backend/app/Shared/Domain/Failure/` com o catálogo de falhas e
+    `backend/app/Shared/Domain/Exception/` com a falha de domínio;
+    `backend/app/Shared/Interfaces/Http/Resource/` com o recurso base, a base de
+    coleção, a normalização de tamanho de página e a resposta paginada;
+    `backend/app/Shared/Interfaces/Http/Problem/` com o corpo de erro, o
+    mapeamento para status HTTP e o tratamento centralizado;
+    `backend/bootstrap/app.php`; `backend/routes/api.php`; `backend/pint.json`;
+    `backend/phpunit.xml`; `backend/tests/TestCase.php` e
+    `backend/tests/Support/` com a escolha do schema de testes;
+    `backend/tests/Feature/Shared/HttpContractTest.php`;
+    `backend/tests/Unit/Support/TestDatabaseTest.php`; o comentário de
+    `backend/tests/Feature/HealthEndpointTest.php`; e `docker-compose.yml`, que
+    entrega o schema de testes ao serviço `api`.
+
+    `backend/composer.json` **não** entra: o mapeamento `App\` já cobre as áreas
+    novas, e acrescentar entradas por área produziria diff sem efeito.
   - **Requisitos:** ABERTO-010, ABERTO-011, ABERTO-013; RNF-004, RNF-005,
     RNF-008; RN-AUT-005; RF-WHK-011; RF-UI-009, RF-UI-010, RF-UI-017;
     plan §§5.1, 5.2, 10.1, 10.2, 10.3, 17.1.
@@ -509,7 +521,7 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
     seguinte fecha com eles.
 
     Recurso e coleção sob `data`; coleção paginada acrescenta `meta` e `links`,
-    com `per_page` padrão 15 e teto 50 — valor acima é limitado, não aceito.
+    com `per_page` padrão 15 e teto 50 — valor acima é limitado a 50, não recusado.
     Erros em `application/problem+json` com `type`, `title`, `status`, `detail`,
     `code` e, na validação, `errors` por campo. Nenhum rastro de execução no
     corpo.
@@ -519,11 +531,35 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
     caminho que aceite texto livre vindo de fora. É o que faz RN-AUT-005 e
     RF-WHK-011 valerem por construção. Exceções de domínio carregam código
     funcional estável.
+
+    **`404` e `405` são respostas distintas.** Rota inexistente responde `404`;
+    rota existente chamada com verbo errado responde `405`, com `code`
+    `METHOD_NOT_ALLOWED` e o cabeçalho `Allow` **preservado** — sem ele a
+    resposta diria que o método está errado sem dizer qual serve. É o
+    significado padrão do HTTP, e ajuda o diagnóstico sem revelar detalhe
+    interno (plan §10.3).
+
+    **O schema de testes é escolhido em `tests/TestCase.php`**, antes de a
+    aplicação de teste ser criada — e não num bootstrap global da suíte. Assim a
+    seleção vale apenas para os testes de feature e integração, que de fato
+    inicializam o framework. Os unitários de domínio são PHP puro e continuam
+    rodando sem banco, sem variável de ambiente e sem framework, que é o retorno
+    prático da separação de camadas (plan §17.2).
   - **Testes/validação:** `docker compose run --rm api composer dump-autoload`
     sem aviso; `docker compose run --rm api ./vendor/bin/pint --test`; e uma rota
     de teste temporária exercitando envelope, paginação e os formatos de erro,
     por `docker compose run --rm api php artisan test --filter=HttpContract`.
     O teste afirma também que o catálogo de falhas não admite mensagem arbitrária.
+
+    Provas adicionais: campo condicional declarado com `when()` desaparecendo do
+    recurso individual **e** de dentro da resposta paginada, e aparecendo quando
+    a condição é verdadeira; verbo incorreto respondendo `405` com `Allow`
+    contendo os métodos aceitos; as exceções que os casos de uso realmente vão
+    lançar — falha de autorização em `403` e modelo ausente em `404`, sem citar
+    a classe nem o identificador procurado. E três provas negativas do banco: a
+    suíte unitária passa com `DB_TEST_DATABASE` vazia; a de feature falha, antes
+    do bootstrap do framework, quando essa variável está ausente ou vazia; e
+    falha também quando ela coincide com o banco da aplicação.
   - **Depende de:** T012.
   - **Critério de conclusão:** árvore criada, autoload e ferramental verdes, e os
     formatos de resposta disponíveis e testados antes de existir endpoint de
@@ -744,14 +780,23 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
     A chave real é **gerada localmente** e fica **fora do Git**, em arquivo de
     ambiente ignorado — nunca como valor versionado.
 
+    **As mensagens de validação em português nascem aqui.** Até T014 o contrato
+    garantia o *formato* de `errors`; o texto de cada campo ainda vinha do
+    idioma padrão do framework. Esta tarefa escreve as mensagens em português,
+    usando arquivos de tradução do próprio projeto ou mensagens declaradas nos
+    Form Requests — **sem acrescentar dependência só para traduzir**, o que
+    contrariaria o critério de não somar componente sem necessidade
+    demonstrada. Um teste afirma que `errors` devolve mensagem em português.
+
     Ausência ou expiração de sessão produz `401`; perfil sem permissão produz
     `403`. Cada um com código funcional estável — é o que permite ao frontend
     distinguir reautenticar de não pode. O `404` de recurso alheio é acrescentado
     em T034, quando existir recurso para ocultar.
   - **Testes/validação:**
     `docker compose run --rm api php artisan test --filter=Auth`, cobrindo sessão
-    persistida no MySQL, os três endpoints, os dois sentidos do perfil e a
-    distinção entre `401` e `403` por status e por código.
+    persistida no MySQL, os três endpoints, os dois sentidos do perfil, a
+    distinção entre `401` e `403` por status e por código, e `errors` devolvendo
+    mensagem de validação em português.
   - **Depende de:** T022.
   - **Critério de conclusão:** login e logout funcionando com sessão em cookie,
     perfis separados e `401` distinguível de `403`.
