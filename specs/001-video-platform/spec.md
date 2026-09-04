@@ -192,13 +192,22 @@ status HTTP, qual corpo — está definida no contrato de erros do `plan.md` §1
 
 - **RN-ORD-001** `[OBRIGATÓRIO]` Módulos têm ordem definida dentro do curso;
   aulas têm ordem definida dentro do módulo.
-- **RN-ORD-002** `[DECISÃO]` A posição pode ser informada na criação. Quando
-  omitida, o item é acrescentado ao final da sequência.
+- **RN-ORD-002** `[DECISÃO]` A posição é atribuída pelo backend: cada módulo
+  nasce na próxima posição livre do curso e cada aula na próxima posição livre do
+  módulo. A ordem corresponde à ordem de criação, e o cliente não informa posição.
 - **RN-ORD-003** `[DECISÃO]` A sequência resultante nunca contém posições
-  duplicadas nem ordem ambígua. Inserir em uma posição já ocupada desloca os
-  itens seguintes.
+  duplicadas nem ordem ambígua. Não existe inserção em posição já ocupada e,
+  portanto, nenhum item já criado é deslocado.
 - **RN-ORD-004** `[DECISÃO]` A ordem é total e determinística: duas leituras
   consecutivas sem escrita retornam a mesma sequência.
+
+O desafio exige definir e preservar a ordem (§5.2, §5.3); não exige escolher o
+ponto de inserção. Atribuir a próxima posição cumpre o requisito com uma regra
+que cabe em uma frase, enquanto a inserção arbitrária acrescentaria reescrita em
+massa das posições seguintes, uma janela de concorrência própria e um vocabulário
+de erro adicional — sem tornar possível nenhuma jornada exigida. A posição
+continua persistida e é ela que ordena todas as consultas. Reordenação permanece
+fora de escopo (RF-MOD-005).
 
 ### 6.3 Estado do curso
 
@@ -254,17 +263,22 @@ aula assistível.
 
 - **RN-IDM-001** `[OBRIGATÓRIO]` Conclusão de upload repetida para o mesmo vídeo
   não inicia processamentos duplicados.
-- **RN-IDM-002** `[OBRIGATÓRIO]` Um callback com `event_id` já processado e
-  conteúdo idêntico é reconhecido sem produzir efeito adicional.
-- **RN-IDM-003** `[DECISÃO]` Um callback com `event_id` já processado e conteúdo
-  divergente é rejeitado como conflito, e não sobrescreve o efeito anterior.
+- **RN-IDM-002** `[OBRIGATÓRIO]` O `event_id` é a única chave de idempotência do
+  callback. O primeiro desfecho definitivo de um `event_id` vence, e qualquer
+  reentrega dele é reconhecida sem produzir efeito adicional.
+- **RN-IDM-003** `[DECISÃO]` A reentrega de um `event_id` já concluído repete o
+  desfecho armazenado. O corpo da reentrega não é usado para alterar, reavaliar
+  ou sobrescrever o evento já concluído.
 - **RN-IDM-004** `[OBRIGATÓRIO]` Publicação repetida da mesma aula não produz
   efeitos duplicados.
 
-O desafio exige idempotência (§7.2, §10) mas não define o comportamento diante de
-um mesmo `event_id` com carga divergente. Rejeitar é decisão deste projeto:
-aceitar significaria deixar a última entrega vencer, o que transforma reentrega
-de rede em corrupção silenciosa de estado.
+O desafio exige idempotência (§7.2, §10) mas não define como comparar duas
+entregas do mesmo `event_id`. Este projeto não as compara: o identificador do
+evento é a chave, e o desfecho registrado na primeira conclusão é o que toda
+reentrega recebe. Comparar o conteúdo exigiria uma normalização canônica da carga
+e um vocabulário de conflito próprio para proteger contra um emissor que muda o
+significado de um evento já entregue — cenário que o desafio não descreve e que o
+simulador desta entrega não produz.
 
 ---
 
@@ -299,8 +313,8 @@ eventuais falhas, e publica uma aula quando as regras permitirem.
 - **RF-MOD-006** `[DECISÃO]` O título é o campo funcional mínimo do módulo. O
   desafio exige a operação de criação e a preservação da ordem (§5.2), mas não
   determina os campos do recurso.
-- **RF-MOD-007** `[DECISÃO]` A posição é opcional na criação, com inserção e
-  deslocamento conforme RN-ORD-002 e RN-ORD-003.
+- **RF-MOD-007** `[DECISÃO]` A posição do módulo é atribuída pelo backend na
+  criação, conforme RN-ORD-002. O corpo da requisição não a contém.
 - **RF-MOD-003** `[OBRIGATÓRIO]` O produtor lista os módulos de um curso próprio
   na ordem definida.
 - **RF-MOD-004** `[OBRIGATÓRIO]` Criar módulo em curso de outro produtor é negado.
@@ -313,8 +327,8 @@ eventuais falhas, e publica uma aula quando as regras permitirem.
 - **RF-AUL-008** `[DECISÃO]` O título é o campo funcional mínimo da aula, pela
   mesma razão registrada em RF-MOD-006 — o desafio exige a operação (§5.3) sem
   determinar os campos.
-- **RF-AUL-009** `[DECISÃO]` A posição é opcional na criação, com inserção e
-  deslocamento conforme RN-ORD-002 e RN-ORD-003.
+- **RF-AUL-009** `[DECISÃO]` A posição da aula é atribuída pelo backend na
+  criação, conforme RN-ORD-002. O corpo da requisição não a contém.
 - **RF-AUL-003** `[OBRIGATÓRIO]` O produtor consulta e lista aulas dos próprios
   cursos, na ordem definida.
 - **RF-AUL-004** `[DECISÃO]` Uma aula nasce como rascunho, sem vídeo associado.
@@ -462,46 +476,45 @@ Transições permitidas `[DECISÃO]`:
 - **RN-VID-004** `[OBRIGATÓRIO]` Um callback repetido, atrasado ou fora da ordem
   esperada não pode corromper nem regredir o estado atual do vídeo. O desafio
   exige considerar essas entregas (§7.2, §10), o que torna a proteção obrigatória.
-- **RN-VID-006** `[DECISÃO]` Um evento novo cujo resultado é obsoleto ou
-  permanentemente incompatível com o estado atual — por exemplo, um callback de
-  falha para um vídeo já em `ready` — preserva o estado, não provoca regressão e
-  é registrado como rejeitado em definitivo. A resposta indica um resultado
-  permanente, para que o emissor não continue reentregando um evento que nunca
-  será aceito.
-- **RN-VID-007** `[DECISÃO]` Um evento novo que apenas chegou cedo demais — por
-  exemplo, um callback `ready` para um vídeo ainda em `uploaded`, antes da
-  transição para `processing` — preserva o estado, **não** é registrado como
-  processado em definitivo, e a resposta indica falha temporária. Quando o vídeo
-  alcançar `processing`, a reentrega do mesmo `event_id` é aplicada normalmente.
+- **RN-VID-006** `[DECISÃO]` Um evento novo incompatível com o estado atual —
+  seja porque a tentativa referenciada não existe, seja porque o estado não admite
+  a transição pedida, como um callback de falha para um vídeo já em `ready` ou um
+  callback `ready` para um vídeo ainda em `uploaded` — preserva o estado, não
+  provoca regressão e é registrado como rejeitado em definitivo. A resposta indica
+  resultado permanente, para que o emissor não continue reentregando um evento que
+  nunca será aceito.
+- **RN-VID-007** `[DECISÃO]` Uma falha transitória de banco ou de infraestrutura
+  durante o processamento do callback não produz desfecho: a transação é desfeita,
+  nada é registrado e a resposta indica falha temporária. A reentrega posterior do
+  mesmo `event_id` é avaliada normalmente, do zero.
 
-A distinção entre RN-VID-006 e RN-VID-007 existe porque tratar as duas situações
-igual custa caro nos dois sentidos: registrar um evento prematuro como processado
-descarta em definitivo um resultado legítimo que apenas se adiantou à corrida
-entre a fila e o callback; e responder falha temporária a um evento obsoleto
-condena o emissor a reentregar para sempre algo que nunca será aceito.
+A distinção entre RN-VID-006 e RN-VID-007 é a distinção entre "este evento nunca
+será aceito" e "este evento não pôde ser avaliado agora". Confundir as duas custa
+caro nos dois sentidos: responder falha temporária a um evento incompatível
+condena o emissor a reentregar para sempre algo que jamais será aceito, e
+registrar um desfecho permanente diante de uma indisponibilidade momentânea
+descarta um evento legítimo por causa de um problema que se resolveria repetindo
+a chamada.
 
-Os casos possíveis na avaliação de um callback:
+Os desfechos possíveis na avaliação de um callback:
 
-| Caso | Situação | Efeito no vídeo | Registro do evento | Resposta ao emissor |
-| --- | --- | --- | --- | --- |
-| A1 | `event_id` conhecido, conteúdo idêntico | Nenhum | Desfecho anterior já registrado | Repete o desfecho anterior, que pode ser aceito ou permanente (RN-IDM-002, RN-VID-008) |
-| A2 | `event_id` conhecido, conteúdo divergente | Nenhum; efeito anterior preservado | Conflito | Permanente (RN-IDM-003) |
-| B | Evento novo, válido para o estado atual | Aplicado | Processado | Aceito |
-| C | Evento novo, obsoleto ou permanentemente incompatível | Preservado | Rejeitado em definitivo | Permanente (RN-VID-006) |
-| D | Evento novo, prematuro | Preservado | Não registrado como processado | Temporária, admite nova tentativa (RN-VID-007) |
+| Situação | Efeito no vídeo | Registro do evento | Resposta ao emissor |
+| --- | --- | --- | --- |
+| `event_id` já concluído, em qualquer reentrega | Nenhum | Desfecho anterior preservado | Repete o desfecho anterior (RN-IDM-002, RN-IDM-003, RN-VID-008) |
+| Evento novo, válido para o estado atual | Aplicado atomicamente | Aceito | Aceito |
+| Evento novo, tentativa inexistente ou estado incompatível | Preservado | Rejeitado em definitivo | Permanente (RN-VID-006) |
+| Falha transitória ao avaliar o evento | Preservado | Nada registrado | Temporária, admite nova tentativa (RN-VID-007) |
 
 - **RN-VID-008** `[DECISÃO]` O registro de um evento guarda o desfecho que ele
-  teve, não apenas o fato de ter sido visto. A reentrega de um `event_id` com
-  conteúdo idêntico repete o desfecho definitivo anteriormente registrado,
-  conforme o caso A1: eventos anteriormente aceitos continuam aceitos sem novo
-  efeito, e eventos anteriormente rejeitados em definitivo recebem novamente a
-  resposta permanente. Um `event_id` do caso D não possui desfecho definitivo
-  registrado; por isso, sua reentrega posterior é avaliada novamente e pode ser
-  aplicada como caso B.
+  teve, não apenas o fato de ter sido visto. A reentrega de um `event_id` repete o
+  desfecho definitivo anteriormente registrado: eventos aceitos continuam aceitos
+  sem novo efeito, e eventos rejeitados em definitivo recebem novamente a resposta
+  permanente. Um evento que terminou em falha transitória não deixou desfecho
+  registrado, e por isso sua reentrega é avaliada do zero.
 
 `[RESOLVIDO]` A resposta distingue os três desfechos por status HTTP, com corpo
 em formato de problema estruturado. Contrato completo em `plan.md` §10 e o
-mapeamento caso a caso em §13.4 (ABERTO-010).
+mapeamento em §13.4 (ABERTO-010).
 - **RF-VID-002** `[OBRIGATÓRIO]` O estado atual do vídeo e a informação de falha,
   quando houver, são visíveis para o produtor na interface.
 
@@ -536,15 +549,13 @@ carga contendo `event_id`, `video_id`, `status` e `playback_reference`.
   origem legítima são recusadas sem produzir efeito.
 - **RF-WHK-002** `[OBRIGATÓRIO]` O `event_id` identifica o evento para fins de
   idempotência.
-- **RF-WHK-003** `[OBRIGATÓRIO]` O mesmo `event_id` reentregue com conteúdo
-  idêntico é reconhecido e não duplica efeitos (RN-IDM-002).
-- **RF-WHK-004** `[DECISÃO]` O mesmo `event_id` com conteúdo divergente é
-  rejeitado como conflito (RN-IDM-003).
+- **RF-WHK-003** `[OBRIGATÓRIO]` O mesmo `event_id` reentregue é reconhecido e
+  não duplica efeitos (RN-IDM-002).
+- **RF-WHK-004** `[DECISÃO]` A reentrega de um `event_id` já concluído repete o
+  desfecho armazenado, qualquer que seja o corpo recebido (RN-IDM-003).
 - **RF-WHK-005** `[OBRIGATÓRIO]` Callbacks podem chegar repetidos, atrasados ou
   fora da ordem esperada, e nenhum deles regride o vídeo (RN-VID-004). Um evento
-  fora de ordem pode ser prematuro, e nesse caso admite nova tentativa
-  (RN-VID-007), ou obsoleto e permanentemente incompatível, e nesse caso é
-  rejeitado em definitivo (RN-VID-006).
+  novo incompatível com o estado atual é rejeitado em definitivo (RN-VID-006).
 - **RF-WHK-006** `[OBRIGATÓRIO]` Um callback de sucesso registra a referência de
   reprodução e leva o vídeo a `ready`.
 - **RF-WHK-007** `[OBRIGATÓRIO]` Um callback de falha leva o vídeo de
@@ -564,15 +575,13 @@ carga: a mensagem é derivada internamente pelo backend, sem campo adicional. Ve
 - **RF-WHK-008** `[OBRIGATÓRIO]` Um evento de falha pode ser simulado para
   demonstração.
 - **RF-WHK-009** `[DECISÃO]` O callback tolera novas tentativas de entrega pelo
-  emissor. A resposta permite distinguir três desfechos funcionais: **aceito**
-  (caso B, e caso A1 quando o desfecho armazenado anteriormente foi aceito);
-  **conflito ou rejeição permanente**, que não deve ser reentregue (casos A2 e C,
-  e caso A1 quando o desfecho armazenado anteriormente foi uma rejeição
-  permanente); e **falha temporária**, que admite nova tentativa (caso D). O
-  desafio pede considerar novas tentativas de entrega,
-  mas não define esse vocabulário de resposta; é uma escolha de resiliência deste
-  projeto, porque um emissor que não distingue conflito de falha temporária
-  reentrega indefinidamente um evento que nunca será aceito.
+  emissor. A resposta permite distinguir três desfechos funcionais: **aceito**;
+  **rejeição permanente**, que não deve ser reentregue; e **falha temporária de
+  infraestrutura**, que admite nova tentativa. O desafio pede considerar novas
+  tentativas de entrega, mas não define esse vocabulário de resposta; é uma
+  escolha de resiliência deste projeto, porque um emissor que não distingue
+  rejeição permanente de falha temporária reentrega indefinidamente um evento que
+  nunca será aceito.
 
 `[RESOLVIDO]` Assinatura HMAC sobre timestamp e corpo bruto, com segredo
 compartilhado, comparação em tempo constante e janela de validade. Mecanismo e
@@ -688,9 +697,9 @@ após falhas de rede e callbacks que chegam repetidos ou fora do fluxo esperado.
 | **RF-ERR-004** | Falha de processamento | O vídeo vai a `failed` com informação compreensível; a aula não se torna publicável |
 | **RF-ERR-005** | Nova tentativa após falha | Um novo envio substitui a tentativa em `failed` e cria uma nova tentativa em `pending` (RF-UPL-005). Enquanto a tentativa não estiver em `failed`, o novo envio é rejeitado (RF-UPL-011) |
 | **RF-ERR-006** | Callback duplicado | Idempotente (RN-IDM-002) |
-| **RF-ERR-007** | Callback conflitante | Rejeitado como conflito (RN-IDM-003) |
-| **RF-ERR-008** | Callback obsoleto ou permanentemente incompatível | O estado atual é preservado, o evento é rejeitado em definitivo e a resposta indica resultado permanente, dispensando novo envio (RN-VID-006, caso C) |
-| **RF-ERR-014** | Callback prematuro | O estado atual é preservado, o evento não é registrado como processado e a resposta indica falha temporária; a reentrega do mesmo `event_id` é aplicada quando o vídeo alcançar `processing` (RN-VID-007, caso D) |
+| **RF-ERR-007** | Reentrega de evento já concluído | O desfecho armazenado é repetido, sem reaplicar efeitos e sem reavaliar o corpo recebido (RN-IDM-003) |
+| **RF-ERR-008** | Callback incompatível com o estado ou para tentativa inexistente | O estado atual é preservado, o evento é rejeitado em definitivo e a resposta indica resultado permanente, dispensando novo envio (RN-VID-006) |
+| **RF-ERR-014** | Falha transitória ao processar o callback | O estado atual é preservado, nada é registrado e a resposta indica falha temporária; a reentrega do mesmo `event_id` é avaliada normalmente (RN-VID-007) |
 | **RF-ERR-009** | Callback de origem não confiável | Recusado sem efeito (RF-WHK-001) |
 | **RF-ERR-010** | Publicação antecipada | Rejeitada com a condição não satisfeita (RF-PUB-002) |
 | **RF-ERR-011** | Acesso a recurso de terceiro | O acesso é negado e nenhum conteúdo é retornado (RN-PROP-003); a resposta não permite determinar se o recurso existe (RN-PROP-005) |
@@ -785,12 +794,13 @@ E quando ele solicita um identificador que não existe
 Então as duas respostas são indistinguíveis entre si
 E não é possível determinar se o identificador pertence a outro produtor
 
-**AC-PROD-003 — módulos e aulas preservam posição e deslocamento**
-Dado um curso com três módulos criados sem posição informada
+**AC-PROD-003 — módulos e aulas recebem a posição na ordem de criação**
+Dado um produtor autenticado com um curso próprio
+Quando ele cria três módulos nesse curso
 Então eles ocupam as posições 1, 2 e 3, na ordem de criação
-Quando o produtor cria um quarto módulo informando a posição 2
-Então o novo módulo ocupa a posição 2
-E os módulos que ocupavam 2 e 3 são deslocados para 3 e 4
+Quando ele cria um quarto módulo
+Então esse módulo ocupa a posição 4
+E nenhum módulo existente tem sua posição alterada
 E não há posições duplicadas nem ordem ambígua
 E o mesmo comportamento se aplica às aulas dentro de um módulo
 E duas consultas consecutivas sem escrita retornam a mesma sequência
@@ -859,32 +869,35 @@ Então a resposta é reconhecida sem erro
 E nenhum processamento adicional é iniciado
 
 **AC-VID-004 — callback repetido é idempotente**
-Dado um callback com `event_id` já processado
-Quando o mesmo `event_id` é reentregue com conteúdo idêntico
+Dado um callback com `event_id` já concluído
+Quando o mesmo `event_id` é reentregue
 Então o evento é reconhecido
+E o desfecho registrado anteriormente é repetido
 E nenhum efeito adicional é produzido
 
-**AC-VID-005 — callback conflitante é rejeitado**
-Dado um callback com `event_id` já processado
-Quando o mesmo `event_id` é reentregue com conteúdo divergente
-Então o evento é rejeitado como conflito
+**AC-VID-005 — o corpo da reentrega não altera um evento já concluído**
+Dado um callback com `event_id` já concluído
+Quando o mesmo `event_id` é reentregue com um corpo diferente
+Então o desfecho registrado anteriormente é repetido
+E o corpo recebido não é aplicado
 E o efeito anterior é preservado
 
-**AC-VID-006 — callback obsoleto não regride o vídeo** (RN-VID-006)
+**AC-VID-006 — callback incompatível não regride o vídeo** (RN-VID-006)
 Dado um vídeo em `ready`
 Quando chega um novo callback de falha para esse vídeo, com `event_id` ainda não conhecido
 Então o vídeo permanece em `ready`
 E o evento é tratado como permanentemente incompatível
 E a resposta indica resultado permanente, dispensando nova entrega
+E o mesmo vale para um callback cujo `video_id` não corresponde a tentativa alguma
 E nenhuma regressão ocorre
 
-**AC-VID-013 — callback prematuro é aplicado em uma entrega posterior** (RN-VID-007)
-Dado um vídeo em `uploaded`
-Quando chega um callback `ready` antes de o vídeo entrar em `processing`
-Então o vídeo permanece em `uploaded`
-E o evento não é registrado como processado em definitivo
-E a resposta admite nova tentativa
-Quando o vídeo passa para `processing` e o mesmo `event_id` é reenviado
+**AC-VID-013 — falha transitória não consome o evento** (RN-VID-007)
+Dado um vídeo em `processing`
+Quando o processamento do callback é interrompido por uma falha transitória de infraestrutura
+Então o vídeo permanece em `processing`
+E nenhum desfecho é registrado para aquele `event_id`
+E a resposta indica falha temporária, admitindo nova tentativa
+Quando o mesmo `event_id` é reentregue e a infraestrutura responde normalmente
 Então o callback é processado
 E o vídeo passa para `ready`
 
@@ -1041,7 +1054,7 @@ esta especificação e o plano, e não são renomeados nem renumerados.
 | ID | Decisão técnica | Estado | Resolvida em | Escolha resumida |
 | --- | --- | --- | --- | --- |
 | **ABERTO-001** | Autenticação, sessão, CORS, CSRF e armazenamento de credenciais no cliente | `[RESOLVIDO]` | plan §9 | Sanctum em modo SPA, sessão em MySQL, cookie `HttpOnly`, origens explícitas com credenciais |
-| **ABERTO-002** | Mecanismo de storage e forma da transferência direta, incluindo envio em partes | `[RESOLVIDO]` | plan §11 | RustFS S3-compatible, multipart de 64 MiB, 3 concorrentes, URL de parte de 15 minutos renovável |
+| **ABERTO-002** | Mecanismo de storage e forma da transferência direta, incluindo envio em partes | `[RESOLVIDO]` | plan §11 | RustFS S3-compatible, multipart de 64 MiB, uma parte por vez, URL de parte de 15 minutos renovável |
 | **ABERTO-003** | Verificação da existência e dos metadados do objeto enviado | `[RESOLVIDO]` | plan §12 | `CompleteMultipartUpload` e `HeadObject` sob lock atômico, validando chave, tamanho, tipo e metadados da tentativa |
 | **ABERTO-004** | Mecanismo de fila e forma do worker | `[RESOLVIDO]` | plan §§13.1 e 13.2 | Database Queue sobre MySQL, workers separados, despacho após o commit, job de processamento retomável |
 | **ABERTO-005** | Simulador de processamento, seus callbacks e a origem da informação de falha | `[RESOLVIDO]` | plan §§13.3 e 13.4 | `simulator-worker` isolado chamando o webhook real, sucesso determinístico e falha por comando Artisan; mensagem derivada internamente, carga oficial preservada |
@@ -1052,7 +1065,7 @@ esta especificação e o plano, e não são renomeados nem renumerados.
 | **ABERTO-010** | Formato dos contratos da API, paginação e formato dos erros | `[RESOLVIDO]` | plan §10 | Envelope `data`, `meta` e `links`, paginação 15 por padrão e 50 no máximo, `application/problem+json`, OpenAPI 3.1 |
 | **ABERTO-011** | Modelagem em agregados, entidades e value objects; limites transacionais | `[RESOLVIDO]` | plan §§5, 6, 7.4 e 8 | Quatro camadas e três áreas; `Course`, `Module`, `Lesson` e `VideoAttempt` como agregados separados, coordenados por caso de uso com lock explícito |
 | **ABERTO-012** | Composição do ambiente containerizado e serviços que o integram | `[RESOLVIDO]` | plan §16 | Docker Compose com oito serviços, healthchecks, volumes nomeados, imagens fixadas, sem Redis |
-| **ABERTO-013** | Ferramentas de teste, lint e análise estática de cada camada | `[RESOLVIDO]` | plan §17 | PHPUnit, Pint, PHPStan/Larastan, Vitest, Nuxt e Vue Test Utils, ESLint, typecheck, Playwright |
+| **ABERTO-013** | Ferramentas de teste, lint e verificação adicional de cada camada | `[RESOLVIDO]` | plan §17 | PHPUnit e Pint no backend; Vitest com Nuxt e Vue Test Utils, ESLint, typecheck e build no frontend; Playwright no fluxo integrado |
 | **ABERTO-014** | Retomada, cancelamento, descarte e expiração de tentativas de upload abandonadas | `[RESOLVIDO]` | plan §§11.2 e 19.1 | Recuperação limitada à tentativa atual, com reenvio de parte e renovação de URL; cancelamento, descarte, expiração e retomada entre sessões documentados como limitação consciente do MVP |
 
 ---

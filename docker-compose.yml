@@ -384,11 +384,12 @@ services:
       api:
         condition: service_healthy
 
-    # PRONTIDAO TEMPORARIA. `/up` e o endpoint de saude padrao do Laravel e esta
-    # aqui porque `/api/health` — o do plano, que verifica banco e storage — so
-    # existe a partir de T075. Aquela tarefa aponta esta verificacao para o novo
-    # endpoint e remove esta nota. Ate la, o que fica provado e que a aplicacao
-    # responde HTTP, e nada a respeito das dependencias dela.
+    # `/up` e o endpoint de prontidao padrao do Laravel, e e a verificacao HTTP
+    # definitiva deste ambiente. Ela e deliberadamente minima: prova que a
+    # aplicacao responde, e nada a respeito das dependencias dela. Quem ordena a
+    # subida de banco e storage sao os healthchecks de cada um e o servico de
+    # preparacao — repetir essa checagem aqui criaria um segundo lugar dizendo a
+    # mesma coisa.
     #
     # `wget` ja acompanha a imagem; `curl` nao, e nao vale instalar um pacote
     # por causa de uma verificacao.

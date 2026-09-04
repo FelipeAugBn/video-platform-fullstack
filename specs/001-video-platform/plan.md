@@ -51,7 +51,7 @@ vira compromisso de implementação com o mesmo peso.
 | Vídeo | Transferência fora da requisição convencional, conclusão verificada, processamento assíncrono, callback idempotente | RustFS S3-compatible, multipart direto do browser, `HeadObject`, HMAC-SHA256 |
 | Fila | Não bloquear a requisição HTTP | Laravel Database Queue sobre MySQL, sem Redis |
 | Ambiente | Ambiente reproduzível ou público | Docker Compose |
-| Qualidade | Testes nas duas camadas, jornada integrada, pipeline com build | PHPUnit, Pint, PHPStan/Larastan, Vitest, ESLint, Playwright |
+| Qualidade | Testes nas duas camadas, jornada integrada, pipeline com build | PHPUnit, Pint, Vitest, ESLint, Playwright |
 
 Nenhuma tecnologia da coluna da direita é exigência da empresa. Sanctum, RustFS,
 multipart, Database Queue, Nuxt UI, Docker Compose, HMAC e Problem Details são
@@ -139,7 +139,7 @@ sequenceDiagram
     A->>A: autoriza produtor e valida tipo/tamanho
     A->>S: CreateMultipartUpload
     A->>N: upload_id, key, plano de partes
-    loop por parte, ate 3 concorrentes
+    loop por parte, uma de cada vez
         N->>A: POST .../parts/{n}/url
         A->>N: URL PUT pre-assinada
         N->>S: PUT da parte (64 MiB)
@@ -206,7 +206,7 @@ Cada área repete as quatro camadas:
 app/Catalog/
     Domain/
         Course.php  Module.php  Lesson.php
-        CourseId.php  Position.php  CourseState.php
+        CourseState.php
         Exception/
     Application/
         CreateCourse/  ListCourses/  GetCourseStructure/  PublishLesson/
@@ -222,7 +222,7 @@ app/Catalog/
 
 As portas são específicas ao problema, não interfaces genéricas de CRUD. Um
 `CourseRepository` expõe o que os casos de uso de catálogo precisam — buscar por
-identificador e dono, salvar, listar por dono, travar para deslocamento — e nada
+identificador e dono, salvar, listar por dono, travar a linha do pai — e nada
 além disso.
 
 Existe um repositório por raiz de agregado, coerente com os limites da seção 6.1:
@@ -264,12 +264,12 @@ projeto:
 Quatro agregados principais, cada um sua própria raiz, referenciando os demais
 por identificador:
 
-| Agregado | Preserva | Referencia por ID |
+| Agregado | Preserva | Referencia por identificador |
 | --- | --- | --- |
-| `Course` | Proprietário, título, descrição e o estado `draft`/`available` | `ProducerId` |
-| `Module` | Título e sua posição dentro do curso | `CourseId` |
-| `Lesson` | Título, posição, publicação e qual é a tentativa de vídeo atual | `ModuleId`, `VideoAttemptId` |
-| `VideoAttempt` | O ciclo de vida do envio e do processamento | `LessonId` |
+| `Course` | Proprietário, título, descrição e o estado `draft`/`available` | proprietário |
+| `Module` | Título e sua posição dentro do curso | curso |
+| `Lesson` | Título, posição, publicação e qual é a tentativa de vídeo atual | módulo, tentativa atual |
+| `VideoAttempt` | O ciclo de vida do envio e do processamento | aula |
 
 Além deles, dois registros que **não** são agregados de negócio equivalentes ao
 catálogo:
@@ -292,8 +292,8 @@ uso, com lock explícito:
 
 | Operação | Coordenação |
 | --- | --- |
-| Criar módulo em posição | O caso de uso trava `Course` e desloca os módulos seguintes |
-| Criar aula em posição | O caso de uso trava `Module` e desloca as aulas seguintes |
+| Criar módulo | O caso de uso trava a linha de `Course` e calcula a próxima posição |
+| Criar aula | O caso de uso trava a linha de `Module` e calcula a próxima posição |
 | Publicar aula | O caso de uso coordena `Lesson`, `VideoAttempt` e `Course` na mesma transação |
 
 É uma troca deliberada: o lock fica explícito e revisável no caso de uso, em vez
@@ -301,15 +301,36 @@ de implícito no tamanho do agregado. A seção 8 detalha cada um.
 
 ### 6.2 Value objects
 
-`CourseId`, `ModuleId`, `LessonId`, `VideoAttemptId`, `UserId`, `Position`,
-`CourseState`, `VideoState`, `StorageKey`, `ContentType`, `ByteSize`,
-`PlaybackReference`, `FailureInfo`.
+`CourseState`, `VideoState`, `StorageKey`, `ContentType`, `ByteSize` e
+`PlaybackReference`.
 
-`Position` valida que é inteiro positivo. `VideoState` conhece a tabela de
-transições e é o único lugar que responde se uma transição é permitida.
-`FailureInfo` carrega código e mensagem já seguros para exibição, o que faz
-RF-WHK-011 e RN-AUT-005 valerem por construção: não existe caminho para colocar
-um rastro interno ali.
+`VideoState` conhece a tabela de transições e é o único lugar que responde se uma
+transição é permitida — é o value object que carrega regra de verdade, e por isso
+tem teste unitário próprio.
+
+Identificadores **não** ganham um value object por tipo. Eles são UUIDs em forma
+de string, gerados pelo suporte do próprio framework e validados nas fronteiras:
+o formato é conferido onde a entrada chega — rota, request e carga do webhook.
+
+O custo dessa escolha é explícito e aceito: **com todos os identificadores sendo
+`string`, o compilador deixa de distinguir o identificador de um curso do de uma
+aula.** Uma classe por tipo daria essa checagem de graça; sem ela, passar um pelo
+outro é um erro que só aparece em execução. Em troca, some um conjunto de cinco
+classes quase idênticas e seus testes de formato.
+
+O que sustenta a correção depois dessa troca não é o tipo, e sim o caminho por
+onde o identificador passa: cada recurso tem repositório e consulta próprios, com
+nomes explícitos; a existência é verificada antes de qualquer decisão; e a
+propriedade ou a concessão entram na cláusula da consulta (§9.3). Um identificador
+trocado não encontra registro, e um identificador válido de outro dono não abre
+acesso — **UUID não substitui autorização**, e nunca foi ele que a garantiu.
+
+O motivo de falha também não é um value object. Código e mensagem pública vêm de
+um catálogo fechado, declarado como enumeração: quem precisa registrar uma falha
+escolhe um caso do catálogo, não escreve texto. É o que faz RF-WHK-011 e
+RN-AUT-005 valerem por construção — não existe caminho para colocar um rastro
+interno ali — sem introduzir um tipo próprio para carregar dois campos
+constantes.
 
 ### 6.3 Invariantes
 
@@ -317,7 +338,7 @@ um rastro interno ali.
 | --- | --- | --- |
 | Curso pertence a exatamente um produtor | RN-PROP-001 | `Course` |
 | Módulos e aulas herdam a propriedade do curso | RN-PROP-004 | Caso de uso, resolvendo a cadeia até `Course` |
-| Posições sem duplicata dentro do pai | RN-ORD-001 a 004 | Caso de uso sob lock + UNIQUE no banco |
+| Posições sem duplicata dentro do pai | RN-ORD-001 a 004 | Caso de uso sob lock, calculando a próxima posição + UNIQUE no banco |
 | Curso vira `available` na primeira publicação | RN-CUR-001 a 003 | `Course`, acionado por `PublishLesson` |
 | Aula publica só com vídeo `ready` e referência presente | RN-PUB-002, RN-PUB-003 | `Lesson`, decidindo sobre o estado que o caso de uso entrega |
 | Publicar de novo não muda nada | RN-PUB-005 | `Lesson` |
@@ -373,10 +394,19 @@ O charset `ascii` mantém a coluna em um byte por caractere em vez dos quatro
 reservados pelo `utf8mb4`, e `ascii_bin` dá comparação exata, sem regras de
 caixa ou acento que não fazem sentido para um identificador.
 
-Cada identificador é um value object — `CourseId`, `ModuleId`, `LessonId`,
-`VideoAttemptId`, `UserId` — responsável por validar o formato e por impedir que
-um identificador de um tipo seja usado onde se espera outro. Uma assinatura que
-recebe `LessonId` não aceita `CourseId` por engano, o que uma `string` permitiria.
+Os identificadores circulam como strings UUID, geradas pelo suporte do framework.
+A validação de formato acontece nas fronteiras — vinculação de rota, validação de
+request e leitura da carga do webhook —, e um identificador sintaticamente
+inválido é recusado antes de qualquer consulta.
+
+Sendo todos `string`, nada impede em tempo de compilação que o identificador de um
+recurso seja passado onde se espera o de outro. É a simplificação assumida em §6.2,
+e o que a torna segura é o resto do caminho: repositórios e consultas específicos
+por recurso, com nomes explícitos; verificação de existência antes de decidir; e
+propriedade ou concessão dentro da própria consulta (§9.3). Um identificador
+trocado não encontra registro; um identificador legítimo de outro dono é negado
+pela autorização. **UUID não substitui autorização** — ele apenas torna a
+enumeração impraticável.
 
 Tabelas de infraestrutura do Laravel — `sessions`, `jobs`, `failed_jobs`, `cache`
 e `cache_locks` — mantêm o esquema padrão do framework.
@@ -485,25 +515,25 @@ conforme a decisão da spec.
 | `event_id` | VARCHAR(128) | UNIQUE — a chave de idempotência |
 | `received_video_id` | CHAR(36) | UUID recebido na carga. Obrigatório e **sem** foreign key |
 | `video_attempt_id` | CHAR(36) NULL | Referência resolvida. Nulo quando a tentativa não existe. FK → `video_attempts.id`, SET NULL |
-| `payload_fingerprint` | CHAR(64) | SHA-256 da representação normalizada dos campos funcionais |
 | `outcome` | ENUM('accepted','rejected_permanent') NULL | Nulo apenas dentro da transação de reserva, nunca em linha confirmada |
 | `received_status` | VARCHAR(32) | `ready` ou `failed` recebido |
 | `processed_at` | TIMESTAMP | |
 
 Duas propriedades desta tabela merecem atenção.
 
-**A fingerprint não é o hash do corpo bruto.** O corpo bruto serve à assinatura
-HMAC e a mais nada. Dois JSONs semanticamente idênticos podem diferir em espaços,
-quebras de linha ou ordem das propriedades; comparar bytes classificaria uma
-reentrega legítima como conflito. A fingerprint é o SHA-256 de uma representação
-normalizada e determinística dos campos funcionais já validados — `video_id`,
-`status` e `playback_reference` — construída pela aplicação, não pelo emissor.
-`event_id` fica de fora: ele é a chave, não parte do conteúdo comparado.
+**O conteúdo da carga não é comparado.** O `event_id` é a chave de idempotência, e
+o desfecho registrado na primeira conclusão é o que toda reentrega recebe
+(RN-IDM-002, RN-IDM-003). Guardar um resumo da carga para comparar entregas
+exigiria uma normalização canônica dos campos e um vocabulário de conflito
+próprio, para proteger contra um emissor que mudasse o significado de um evento
+já entregue — cenário que o desafio não descreve. `received_status` fica gravado
+como evidência do que chegou, não como critério de decisão.
 
 **Nenhuma linha confirmada fica sem `outcome`.** A coluna admite nulo apenas para
 permitir a reserva descrita em §8.4, dentro de uma transação ainda não commitada.
-Um evento prematuro provoca rollback, e a reserva desaparece com ele — que é
-exatamente o que RN-VID-007 exige para a reentrega posterior ser reavaliada.
+Uma falha transitória provoca rollback, e a reserva desaparece com ela — que é
+exatamente o que RN-VID-007 exige para a reentrega posterior ser avaliada do
+zero.
 
 **`received_video_id` e `video_attempt_id` são colunas diferentes de propósito.**
 A primeira guarda o que chegou; a segunda, o que a aplicação conseguiu resolver.
@@ -534,8 +564,8 @@ video_attempts 1 ──▶ N webhook_events
 
 | Operação | Abrange | Fora da transação |
 | --- | --- | --- |
-| Criar módulo | Deslocamento e inserção, sob lock da linha do curso | — |
-| Criar aula | Deslocamento e inserção, sob lock da linha do módulo | — |
+| Criar módulo | Cálculo da próxima posição e inserção, sob lock da linha do curso | — |
+| Criar aula | Cálculo da próxima posição e inserção, sob lock da linha do módulo | — |
 | Concluir envio | Duas transações curtas — validar antes, transicionar depois — dentro de um lock atômico por tentativa | `CompleteMultipartUpload` e `HeadObject` |
 | Publicar aula | Leitura travada da aula e da tentativa, publicação, atualização do estado do curso | — |
 | Processar callback | Reserva do evento, transição do vídeo e gravação do desfecho | — |
@@ -560,22 +590,24 @@ RNF-003, RN-IDM-001 a 004 e RN-VID-004 a 008.
 
 ### 8.1 Ordenação sob concorrência
 
-Inserir na posição *p* desloca os seguintes. Com UNIQUE `(course_id, position)` e
-sem constraints diferidas no MySQL, o deslocamento precisa ocorrer em ordem
-decrescente para nunca colidir no meio do caminho:
+A posição é atribuída pelo servidor: o item novo recebe a próxima livre dentro do
+pai (RN-ORD-002). Nenhum item existente é reescrito, o que reduz a operação a ler
+o máximo atual e inserir o sucessor:
 
 ```sql
 SELECT id FROM courses WHERE id = ? FOR UPDATE;
-UPDATE modules SET position = position + 1
- WHERE course_id = ? AND position >= ?
- ORDER BY position DESC;
+SELECT COALESCE(MAX(position), 0) + 1 FROM modules WHERE course_id = ?;
 INSERT INTO modules (...) VALUES (...);
 ```
 
 O `SELECT ... FOR UPDATE` na linha do curso serializa duas inserções concorrentes
-no mesmo curso. Sem ele, duas requisições simultâneas pedindo a posição 2
-produziriam violação de UNIQUE ou ordem ambígua. Aulas seguem o mesmo padrão,
-travando a linha do módulo.
+no mesmo curso. Sem ele, duas requisições simultâneas leriam o mesmo máximo e
+tentariam gravar a mesma posição, o que a UNIQUE `(course_id, position)`
+rejeitaria — o lock transforma essa colisão em espera, e a segunda requisição lê
+o máximo já atualizado. Aulas seguem o mesmo padrão, travando a linha do módulo.
+
+A UNIQUE continua sendo a última linha de defesa: mesmo que o lock fosse
+esquecido, o banco não aceitaria duas posições iguais dentro do mesmo pai.
 
 ### 8.2 Conclusão de envio
 
@@ -621,46 +653,43 @@ Antes de qualquer escrita: valida assinatura, estrutura da carga e sintaxe do
 estrutural — `422`, sem reserva, sem linha.
 
 ```
-fingerprint = sha256(normalizado(video_id, status, playback_reference))
-
 BEGIN
   INSERT webhook_events (event_id, received_video_id, video_attempt_id = NULL,
-                         payload_fingerprint, outcome = NULL)
+                         received_status, outcome = NULL)
     │
     ├── duplicate key ──▶ SELECT ... da linha existente
     │       (bloqueia ate a transacao concorrente terminar)
-    │       ├── fingerprint igual      ──▶ repete o outcome registrado      [A1]
-    │       └── fingerprint divergente ──▶ conflito permanente              [A2]
+    │       └── repete o outcome ja registrado, sem olhar o corpo recebido
     │
     └── sucesso ──▶ procura a tentativa por received_video_id
             │
             ├── nao existe ──▶ video_attempt_id permanece NULL
             │                  UPDATE outcome = 'rejected_permanent'
-            │                  COMMIT                                       [C]
+            │                  COMMIT
             │
             └── existe ──▶ SELECT video_attempts ... FOR UPDATE
                     UPDATE video_attempt_id = <resolvido>
                     avalia o evento contra o estado travado, via VideoState
-                    ├── transicao valida        ──▶ aplica no video
-                    │                               UPDATE outcome = 'accepted'
-                    │                               COMMIT                  [B]
-                    ├── obsoleto/incompativel   ──▶ estado preservado
-                    │                               UPDATE outcome = 'rejected_permanent'
-                    │                               COMMIT                  [C]
-                    └── prematuro               ──▶ ROLLBACK
-                                                    reserva desaparece      [D]
+                    ├── transicao valida     ──▶ aplica no video
+                    │                            UPDATE outcome = 'accepted'
+                    │                            COMMIT
+                    └── estado incompativel  ──▶ estado preservado
+                                                 UPDATE outcome = 'rejected_permanent'
+                                                 COMMIT
+
+  falha transitoria em qualquer ponto ──▶ ROLLBACK, reserva desaparece, 5xx
 ```
 
-Três garantias sustentam esse desenho:
+Quatro garantias sustentam esse desenho:
+
+**O corpo da reentrega nunca é reavaliado.** A colisão na UNIQUE leva direto ao
+desfecho registrado. Não há comparação de conteúdo, e portanto não há caminho
+pelo qual uma segunda entrega do mesmo `event_id` produza efeito diferente da
+primeira — que é o que RN-IDM-002 e RN-IDM-003 exigem.
 
 **`outcome` nulo só existe dentro da transação de reserva.** Nenhuma linha
-commitada fica sem desfecho: os casos B e C gravam `outcome` antes do commit, e o
-caso D desfaz a linha inteira. É o que torna o schema de §7.2 compatível com este
-algoritmo.
-
-**O caso D deixa o `event_id` livre.** O rollback remove a reserva, e a reentrega
-posterior — quando o vídeo já estiver em `processing` — é avaliada do zero e pode
-ser aplicada como caso B. É exatamente RN-VID-007.
+commitada fica sem desfecho: os dois caminhos conclusivos gravam `outcome` antes
+do commit, e a falha transitória desfaz a linha inteira.
 
 **Uma entrega concorrente espera, não corre.** A segunda requisição colide na
 UNIQUE e fica bloqueada na leitura da linha até a primeira transação terminar.
@@ -675,14 +704,15 @@ fim algo que jamais seria aceito.
 
 A transição do vídeo ocorre na mesma transação, com a tentativa travada por
 `FOR UPDATE`, e é validada por `VideoState`. Um evento que não corresponde a uma
-transição permitida a partir do estado travado nunca é aplicado — RN-VID-004.
+transição permitida a partir do estado travado nunca é aplicado — RN-VID-004 — e
+é registrado como rejeição permanente, RN-VID-006.
 
 ### 8.5 Resumo dos locks
 
 | Operação | Lock | Motivo |
 | --- | --- | --- |
-| Criar módulo | `courses` (linha, `FOR UPDATE`) | Serializar deslocamento |
-| Criar aula | `modules` (linha, `FOR UPDATE`) | Serializar deslocamento |
+| Criar módulo | `courses` (linha, `FOR UPDATE`) | Serializar o cálculo da próxima posição |
+| Criar aula | `modules` (linha, `FOR UPDATE`) | Serializar o cálculo da próxima posição |
 | Concluir envio | Cache lock `video-upload-complete:{id}` + `video_attempts` (linha) nas duas transações curtas | Serializar a operação inteira, inclusive as chamadas ao storage |
 | Publicar | `lessons` + `video_attempts` (linhas, `FOR UPDATE`) | Decidir elegibilidade sobre estado estável |
 | Webhook | UNIQUE em `event_id` + `video_attempts` (linha, `FOR UPDATE`) | Idempotência e transição atômica |
@@ -696,7 +726,7 @@ repetido pela fila, e a proteção precisa cobrir isso também.
 | Repetição | Proteção |
 | --- | --- |
 | `ProcessVideoJob` repetido | Decide pela leitura travada do estado: inicia a partir de `uploaded`, retoma a partir de `processing`, encerra em estado terminal (§13.2) |
-| Entrega ao simulador duplicada | `event_id` estável por tentativa e cenário; a segunda entrega cai no caso A1 do webhook |
+| Entrega ao simulador duplicada | `event_id` estável por tentativa e cenário; a segunda entrega repete o desfecho já registrado |
 | Reentrega do próprio simulador | Mesmo `event_id`, mesma proteção (§13.4) |
 
 O ponto comum é que nenhuma dessas proteções depende de "acontecer só uma vez".
@@ -833,7 +863,7 @@ mensagem de exceção ou detalhe interno (RN-AUT-005).
 | `404` | Recurso inexistente, de outro produtor, ou curso sem concessão |
 | `409` | Conflito de regra: publicar sem vídeo pronto, novo envio sobre tentativa ativa, callback permanentemente incompatível |
 | `422` | Validação de entrada; também carga de webhook estruturalmente inválida |
-| `503` | Callback prematuro, com `Retry-After`; ou storage transitoriamente indisponível na conclusão |
+| `503` | Falha transitória ao processar o callback, com `Retry-After`; ou storage transitoriamente indisponível na conclusão |
 
 O webhook responde `200` quando o evento é aceito, porque ele é aplicado
 sincronamente: quando a resposta sai, a transição já ocorreu. `202` fica
@@ -872,14 +902,23 @@ As duas rotas nomeadas pelo desafio — `POST /api/webhooks/video-processing` e
 `GET /api/lessons/{lesson}/playback` — são preservadas literalmente.
 
 Sem prefixo de versão. Introduzir `/v1` antes de existir um segundo consumidor do
-contrato é cerimônia sem benefício; a documentação OpenAPI e os testes de contrato
-já protegem contra mudança acidental.
+contrato é cerimônia sem benefício; a documentação OpenAPI, versionada junto do
+código, é onde uma mudança de contrato fica visível na revisão.
 
 ### 10.5 Documentação
 
 OpenAPI 3.1 versionado no repositório, descrevendo rotas, schemas, exemplos e
-erros. Atende ao requisito de documentação executável da API e permite validação
-na pipeline contra divergência acidental entre contrato e código.
+erros — inclusive os corpos de problema. Atende ao requisito de documentação
+executável da API: o avaliador importa o documento numa ferramenta de requisições
+e percorre o fluxo sem ler o código.
+
+A pipeline valida a **sintaxe** do documento. Não existe teste que compare, campo
+a campo, cada resposta real com o schema declarado: essa verificação exigiria
+manter um segundo modelo do contrato dentro da suíte e estendê-lo a cada
+endpoint, e o que ela protege — a resposta ter o formato combinado — já é
+afirmado pelos testes de feature de cada rota, que checam corpo e status contra o
+que a spec exige. Documento inválido quebra a pipeline; formato de resposta
+errado quebra o teste do endpoint.
 
 ---
 
@@ -910,7 +949,7 @@ seção 19.
 | Parâmetro | Valor | Motivo |
 | --- | --- | --- |
 | Tamanho de parte | 64 MiB | Acima do mínimo de 5 MiB do protocolo; mantém o número de partes administrável e limita o custo de reenviar uma parte |
-| Concorrência | 3 transferências | Aproveita banda sem saturar a conexão do avaliador |
+| Concorrência | Uma parte por vez | Progresso e retentativa ficam com um único ponto de falha em voo, o que torna o reenvio da parte que falhou trivial de raciocinar e de testar |
 | Partes máximas | 10 000 | Limite do protocolo; com 64 MiB, teto de aproximadamente 625 GiB |
 | Validade da URL de parte | 15 minutos, renovável | Janela curta reduz o valor de uma URL vazada; renovar não altera o domínio (RF-UPL-005) |
 | Tipo aceito | `video/mp4` | Não há transcodificação: aceitar outros formatos seria prometer reprodução que a solução não entrega |
@@ -956,9 +995,14 @@ caminho de armazenamento.
 ### 11.4 Progresso e falhas no navegador
 
 O progresso é a soma das partes concluídas sobre o total — progresso real, não
-indicador genérico. Falha de parte é reportada com a possibilidade de retomar
-dentro da mesma tentativa. Nenhuma falha de transferência marca o vídeo como
-pronto (RF-ERR-001): sem conclusão verificada, o backend não muda de estado.
+indicador genérico. As partes são enviadas em sequência, uma de cada vez: com um
+único envio em voo, a parte que falhou é sempre a última, e a retomada é
+reenviá-la. Falha de parte é reportada com a possibilidade de retomar dentro da
+mesma tentativa. Nenhuma falha de transferência marca o vídeo como pronto
+(RF-ERR-001): sem conclusão verificada, o backend não muda de estado.
+
+O custo aceito é banda ociosa em conexões rápidas. Paralelizar partes é evolução
+natural e não muda o contrato: o backend já emite URL de parte sob demanda.
 
 ---
 
@@ -1119,8 +1163,7 @@ O comportamento sob falha fica assim:
   `processing` e continua dali, enfileirando a entrega;
 - **falha depois de enfileirar** — o retry pode gerar uma entrega duplicada ao
   simulador, tolerada porque ela carrega o mesmo `event_id` e o webhook é
-  idempotente (caso A1): a segunda entrega repete o desfecho da primeira sem
-  efeito novo;
+  idempotente: a segunda entrega repete o desfecho da primeira sem efeito novo;
 - **estado terminal** — `ready` ou `failed` encerram retries tardios sem
   regressão.
 
@@ -1155,7 +1198,7 @@ jornada principal: todo envio concluído com sucesso chega a `ready`.
 O `event_id` desse callback de sucesso é estável, derivado do identificador da
 tentativa e do cenário de sucesso. Uma entrega duplicada — vinda de um retry do
 `ProcessVideoJob` ou de uma reentrega do próprio simulador — carrega o mesmo
-identificador e é reconhecida como caso A1.
+identificador, e o webhook repete o desfecho já registrado.
 
 A falha não é sorteada nem disparada por convenção escondida no nome do arquivo —
 um gatilho mágico desses é invisível para quem lê o código e frágil para quem
@@ -1170,8 +1213,8 @@ escreve o teste. Ela é provocada explicitamente:
   contrato oficial do webhook — nenhum atalho;
 - o `event_id` do cenário é **estável**, derivado do identificador da tentativa e
   do cenário de falha — portanto distinto do `event_id` de sucesso da mesma
-  tentativa. Repetir o comando reentrega o mesmo evento e exercita o caso A1: o
-  desfecho registrado se repete, sem efeito novo;
+  tentativa. Repetir o comando reentrega o mesmo evento e exercita a
+  idempotência: o desfecho registrado se repete, sem efeito novo;
 - nem o comando nem o `simulator-worker` escrevem nas tabelas de domínio.
 
 Os testes usam o mesmo caminho: criam uma tentativa em `processing` e acionam o
@@ -1204,13 +1247,13 @@ Reserializar JSON antes de conferir a assinatura muda os bytes e quebra a
 verificação.
 
 HMAC prova origem e integridade. Não resolve reprocessamento — isso é papel do
-`event_id`, da fingerprint e do desfecho persistido.
+`event_id` e do desfecho persistido.
 
 **Política de reentrega do emissor.** O `simulator-worker` reutiliza o **mesmo**
 `event_id` ao repetir uma entrega — trocar o identificador transformaria uma
 retentativa em evento novo e anularia a idempotência. Ele repete diante de falha
-de rede, `5xx` e do `503` temporário; para diante de `200` ou `409`, que são
-desfechos definitivos. Esgotadas as tentativas, o job termina em `failed_jobs`.
+de rede e de `5xx`, incluindo o `503` temporário; para diante de `200` ou `409`,
+que são desfechos definitivos. Esgotadas as tentativas, o job termina em `failed_jobs`.
 
 Nesse caso a tentativa de vídeo **permanece em `processing`**, porque a aplicação
 nunca recebeu um desfecho confiável. O simulador não altera o vídeo diretamente
@@ -1222,16 +1265,15 @@ restrição de §13.3 existe para impedir. A recuperação para avaliação é
 **sincronamente**, dentro da própria requisição: a resposta já reflete o desfecho.
 Por isso `200`, e não `202` — não há trabalho pendente a aceitar.
 
-| Caso | Situação | Resposta |
-| --- | --- | --- |
-| A1 | `event_id` conhecido, fingerprint idêntica | Repete o desfecho registrado: `200` ou `409` |
-| A2 | `event_id` conhecido, fingerprint divergente | `409` |
-| B | Novo, válido para o estado | `200`, transição aplicada |
-| C | Novo, obsoleto ou permanentemente incompatível | `409`, estado preservado, registrado como rejeitado |
-| C | Novo, `video_id` é UUID válido mas não corresponde a tentativa alguma | `409`, registrado como rejeitado com `video_attempt_id` nulo |
-| D | Novo, prematuro | `503` com `Retry-After`, nada registrado |
-| — | Assinatura inválida ou fora da janela | `401`, sem efeito |
-| — | Carga estruturalmente inválida, incluindo `video_id` que não é UUID | `422`, sem efeito e sem reserva |
+| Situação | Resposta |
+| --- | --- |
+| `event_id` já concluído, em qualquer reentrega | Repete o desfecho registrado: `200` ou `409` |
+| Novo, válido para o estado travado | `200`, transição aplicada |
+| Novo, estado incompatível com a transição pedida | `409`, estado preservado, registrado como rejeitado |
+| Novo, `video_id` é UUID válido mas não corresponde a tentativa alguma | `409`, registrado como rejeitado com `video_attempt_id` nulo |
+| Falha transitória de banco ou infraestrutura | `5xx` com `Retry-After`, rollback, nada registrado |
+| Assinatura inválida ou fora da janela | `401`, sem efeito |
+| Carga estruturalmente inválida, incluindo `video_id` que não é UUID | `422`, sem efeito e sem reserva |
 
 A distinção entre as duas últimas linhas importa. Um `video_id` que não é UUID é
 carga malformada: o emissor tem um defeito, e `422` diz isso sem gastar uma
@@ -1259,10 +1301,11 @@ A mensagem de falha é **derivada pelo backend**, não recebida. Para `failed`:
 - `failure_message` = mensagem pública e genérica, no estilo de
   "Não foi possível processar o vídeo."
 
-`FailureInfo` só admite construção a partir de códigos e mensagens controlados
-pela aplicação. Não existe caminho para colocar ali uma mensagem de exceção, a
-resposta bruta do simulador ou qualquer detalhe interno — o que faz RF-WHK-011 e
-RN-AUT-005 valerem por construção, e não por disciplina de quem escreve o código.
+O catálogo de falhas é uma enumeração fechada: o código e a mensagem pública vêm
+de um caso declarado, e não há sobrecarga que aceite texto livre. Não existe
+caminho para colocar ali uma mensagem de exceção, a resposta bruta do simulador
+ou qualquer detalhe interno — o que faz RF-WHK-011 e RN-AUT-005 valerem por
+construção, e não por disciplina de quem escreve o código.
 
 Derivar em vez de receber tem um custo aceito: a mensagem é genérica. A
 alternativa seria acrescentar um campo à carga oficial, e um texto vindo de fora
@@ -1362,7 +1405,7 @@ app/
     composables/
         useApi.ts          fetch com credenciais, CSRF e traducao de problem+json
         useAuth.ts         sessao, login, logout, expiracao
-        useMultipartUpload.ts  particionamento, concorrencia 3, progresso, retry
+        useMultipartUpload.ts  particionamento sequencial, progresso, retry
         useVideoStatus.ts  polling enquanto transitorio
     types/
         api.ts             tipos derivados do contrato OpenAPI
@@ -1440,7 +1483,7 @@ Healthchecks ordenam a subida:
 | `mysql` | `mysqladmin ping` | Banco aceitando conexão |
 | `rustfs` | Endpoint de saúde do storage | Bucket alcançável |
 | `api` | Processo PHP-FPM respondendo | **PHP-FPM não fala HTTP**: não há o que consultar com `curl` aqui |
-| `web` | `GET /api/health` | É o servidor HTTP à frente do PHP-FPM; é aqui que a aplicação prova estar pronta |
+| `web` | `GET /up` | É o servidor HTTP à frente do PHP-FPM; é aqui que a aplicação prova estar pronta |
 | `frontend` | — | Depende de `web` saudável |
 
 A distinção entre `api` e `web` não é detalhe: um healthcheck HTTP apontado para
@@ -1479,25 +1522,29 @@ exigência. As ferramentas são escolha nossa.
 | Camada | Ferramenta | Papel |
 | --- | --- | --- |
 | Backend | PHPUnit | Unitários, feature e integração |
-| Backend | Pint | Formatação |
-| Backend | PHPStan / Larastan | Análise estática |
+| Backend | Pint | Formatação, e a verificação adicional de qualidade da camada |
 | Frontend | Vitest + Nuxt Test Utils + Vue Test Utils | Componentes e composables |
 | Frontend | ESLint | Lint |
 | Frontend | `nuxi typecheck` | Verificação de tipos |
 | Integrado | Playwright | Jornada real no navegador |
 
+O desafio pede ao menos uma verificação adicional de qualidade por camada, e cita
+lint, formatação, análise estática e verificação de tipos como exemplos
+equivalentes. Pint no backend e ESLint mais verificação de tipos no frontend
+cumprem isso. Análise estática adicional ficaria sobreposta a um domínio pequeno
+e tipado, cuja regra já é afirmada por teste unitário — e o desafio é explícito em
+não considerar diferencial a quantidade de ferramentas.
+
 ### 17.2 Níveis
 
 **Unitários, sem framework.** As regras do `Domain`: transições de `VideoState`,
-elegibilidade de publicação, deslocamento de posição, invariantes de propriedade.
-Rodam sem banco porque o domínio é PHP puro — esse é o retorno prático da
-separação da seção 5.
+elegibilidade de publicação, invariantes de propriedade. Rodam sem banco porque o
+domínio é PHP puro — esse é o retorno prático da separação da seção 5.
 
 **Feature, contra MySQL real.** Contratos HTTP, autorização, formato de erro,
 paginação, transações e locks. Sem SQLite: locks, constraints e comportamento
 transacional precisam corresponder ao banco que a aplicação usa em execução, e é
-justamente esse comportamento que os testes de concorrência e idempotência
-verificam.
+justamente esse comportamento que os testes de idempotência verificam.
 
 **Integração, contra o storage real.** O adapter de `ObjectStorage` contra o
 RustFS do Compose: criar multipart, assinar parte, concluir, `HeadObject`, assinar
@@ -1506,16 +1553,40 @@ leitura. É onde a decisão de storage é validada de verdade.
 **E2E, pela interface.** Playwright percorre AC-E2E-001 com a pilha completa
 subida: produtor abre o curso preparado por seed, cria módulo e aula, envia um
 vídeo pequeno, o processamento conclui, publica; consumidor autenticado navega e
-obtém os dados de reprodução. O arquivo de teste é pequeno o bastante para caber
-em uma parte — o objetivo é provar a integração, não a banda.
+obtém os dados de reprodução. Uma única jornada, num único arquivo, com um fixture
+pequeno o bastante para caber em uma parte — o objetivo é provar a integração, não
+a banda.
 
 ### 17.3 Cenários que a spec exige provar
 
-Autorização entre produtores e ocultação de existência; ordem com deslocamento;
-conclusão com objeto ausente terminando em `failed`; conclusão repetida sem
-duplicar processamento; os cinco casos do webhook, incluindo prematuro seguido de
-reentrega bem-sucedida; publicação bloqueada antes de `ready`; reprodução negada
-sem concessão; validação e indisponibilidade da API na interface.
+No backend: a tabela de transições do vídeo; criação, listagem, detalhe e
+isolamento de cursos; ordem de módulos e aulas; autorização entre produtores, com
+recurso alheio indistinguível de inexistente; abertura de upload e conclusão
+válida e inválida; conclusão repetida sem processamento duplicado; assinatura HMAC
+inválida; callback de sucesso e de falha; callback duplicado sem efeito duplicado;
+evento fora do estado esperado sem regressão; publicação bloqueada antes de
+`ready` e publicação idempotente; reprodução autorizada e negada.
+
+No frontend: ao menos um formulário com sucesso, validação e erro; sessão
+expirada; API indisponível; upload com progresso; falha de transferência que não
+conclui nem apresenta o vídeo como pronto; vídeo processando, pronto e com falha;
+conteúdo indisponível ou não autorizado.
+
+**Idempotência e concorrência não são a mesma prova, e este plano não as
+confunde.** Os testes de repetição de conclusão de upload, de publicação e de
+callback são sequenciais: executam a mesma operação duas vezes e verificam que o
+efeito não se duplica. Isso comprova **idempotência**, e é só isso que se afirma
+sobre eles — nenhum deles coloca duas execuções em disputa pelo mesmo recurso.
+
+A única prova direcionada de simultaneidade preservada é a entrega concorrente do
+mesmo `event_id`, dentro da tarefa do webhook, porque ali a corrida é o próprio
+comportamento sob teste. As demais foram retiradas por priorização, não porque as
+corridas deixem de existir: duas inclusões simultâneas ainda podem ler o mesmo
+`MAX(position)`, e duas conclusões simultâneas ainda podem alcançar a mesma
+tentativa. O que as contém continua **obrigatório** no código e no banco — lock da
+linha do pai, lock atômico por tentativa, transações curtas, índices UNIQUE e a
+reserva do `event_id` — e a ausência de teste dedicado é uma lacuna de cobertura
+assumida, registrada em §19.1, não uma garantia dispensada.
 
 Dois cenários que a estrutura deste plano introduz e que precisam de teste
 próprio:
@@ -1536,17 +1607,27 @@ exigência de entrega em repositório GitHub: a pipeline vive onde o código é
 entregue, sem serviço externo adicional para a avaliação configurar.
 
 ```
-backend:   composer install → Pint --test → PHPStan → PHPUnit (MySQL de servico)
+backend:   composer install → sobe MySQL e RustFS → Pint --test → PHPUnit → lint do OpenAPI
 frontend:  npm ci → ESLint → typecheck → Vitest → nuxi build
-integrado: docker compose up → Playwright → derruba o ambiente
 ```
 
-Falha em qualquer etapa reprova a execução. Backend e frontend rodam em paralelo;
-o integrado depende dos dois. Isso cobre o mínimo exigido — instalar, testar as
-duas camadas, buildar o Nuxt, falhar quando falha — e a verificação adicional por
-camada: análise estática no backend, lint e tipos no frontend.
+Dois jobs, executados em paralelo, sem dependência entre eles. Falha em qualquer
+etapa reprova a execução. Isso cobre o mínimo exigido — instalar dependências das
+duas camadas, testar as duas, buildar o Nuxt, falhar quando algo falha — e a
+verificação adicional por camada: formatação e validação de contrato no backend,
+lint e tipos no frontend.
 
----
+O job de backend sobe o próprio ambiente do projeto porque a suíte não depende só
+do MySQL: há integração contra o storage e testes que exercem o callback HTTP
+real. Rodar apenas a parte que dispensa storage e anunciar a suíte como verde
+seria uma afirmação falsa.
+
+O E2E **não** roda na pipeline. Ele permanece reproduzível por um comando único,
+documentado no README, e é executado localmente. Subir a pilha completa com
+navegador a cada push acrescenta minutos e uma classe própria de instabilidade,
+para reafirmar o que a jornada já prova quando executada — e o desafio pede que o
+teste integrado exista e seja executável por comando documentado, não que ele
+componha a pipeline.
 
 ## 18. Segurança, observabilidade e dados sensíveis
 
@@ -1560,9 +1641,9 @@ camada: análise estática no backend, lint e tipos no frontend.
 | Enumeração de recursos alheios | `404` uniforme, filtro no SQL | 9.3 |
 | Callback forjado | HMAC-SHA256 com comparação em tempo constante | 13.4 |
 | Replay de callback | Janela de cinco minutos sobre o timestamp assinado | 13.4 |
-| Reentrega de callback | `event_id` único, fingerprint semântica do payload, desfecho persistido | 8.4 |
+| Reentrega de callback | `event_id` único e desfecho persistido | 8.4 |
 | Objeto de vídeo público | Bucket privado, URL assinada curta pós-autorização | 14.2 |
-| Vazamento por mensagem de erro | `problem+json` sem rastro; `FailureInfo` já segura | 10.2 |
+| Vazamento por mensagem de erro | `problem+json` sem rastro; catálogo fechado de falhas | 10.2 |
 | Entrada de usuário em caminho de storage | Chave derivada do identificador da tentativa | 11.3 |
 | Upload de tipo inesperado | Tipo e tamanho validados na abertura e no `HeadObject` | 11.2, 12.2 |
 
@@ -1570,12 +1651,13 @@ camada: análise estática no backend, lint e tipos no frontend.
 
 Não é requisito do desafio; consta como diferencial. O mínimo defensável:
 
-- `GET /api/health`, servido pelo `web` e usado pelo healthcheck do Compose,
-  verificando o que é necessário para readiness — conexão com o banco e
-  alcançabilidade do storage — e respondendo apenas com um veredito e o estado de
-  cada dependência. Sem versões, credenciais, hosts internos ou mensagens de
-  exceção: um endpoint de saúde público não é lugar para inventário de
-  infraestrutura;
+- o endpoint de prontidão padrão do Laravel, `GET /up`, servido pelo `web` e
+  usado pelo healthcheck do Compose. Ele responde apenas se a aplicação está de
+  pé, sem versões, credenciais, hosts internos ou mensagens de exceção — um
+  endpoint de saúde público não é lugar para inventário de infraestrutura. Banco
+  e storage não são consultados por ele: quem ordena a subida desses dois é o
+  healthcheck de cada um e o serviço de preparação, e replicar essa verificação
+  numa rota da aplicação criaria um segundo lugar dizendo a mesma coisa;
 - log estruturado em JSON com um identificador de correlação por requisição,
   propagado para os jobs, de modo que uma tentativa de envio possa ser seguida da
   abertura ao callback;
@@ -1622,11 +1704,18 @@ como evolução futura.
 
 **URL de reprodução compartilhável.** Válida até expirar, mesmo fora da aplicação.
 
-**RustFS é a decisão de maior risco.** É um projeto novo. Se multipart, CORS,
-`HeadObject` ou URLs pré-assinadas não se comportarem como esperado, a escolha
-volta a ser decisão arquitetural. A primeira tarefa de infraestrutura deve
-validar exatamente esses quatro pontos, antes de qualquer código de domínio
-depender deles.
+**RustFS era a decisão de maior risco, e foi validado antes de qualquer código
+de domínio depender dele.** T001 executou o spike e T002 registrou a evidência em
+`docs/spikes/rustfs.md`. Os quatro pontos que sustentavam o risco foram
+comprovados na prática — upload multipart, política de CORS, `HeadObject` e URLs
+pré-assinadas —, e o RustFS ficou aprovado para a arquitetura.
+
+O que o spike **não** cobriu continua valendo como limitação conhecida: o envio
+usou **uma única parte**, a expiração das URLs foi configurada mas o prazo real
+não chegou a vencer durante a validação, e a versão aprovada é uma **release
+candidate**. Nada disso invalidou a escolha, e nada disso significa que o storage
+definitivo ou o upload da aplicação já existam: o adapter chega em T042 e o fluxo
+de envio em T043.
 
 **Sanctum exige domínio-base compartilhado.** Frontend e API precisam
 compartilhar o domínio-base no ambiente publicado — restrição a considerar se
@@ -1635,16 +1724,32 @@ houver ambiente público.
 **Sem verificação criptográfica do conteúdo enviado.** A verificação é de
 existência, chave, tamanho e tipo. Checksum ponta a ponta fica para depois.
 
+**Envio de uma parte por vez.** O upload não paraleliza transferências, o que
+deixa banda ociosa em conexões rápidas. O contrato já comporta a mudança, porque a
+URL de cada parte é emitida sob demanda.
+
+**Ordem por criação, sem reordenação.** Módulos e aulas recebem a próxima posição
+e não há operação para movê-los depois. É o recorte que o desafio pede — definir e
+preservar a ordem — e reordenação consta como escopo opcional.
+
 **Um perfil por usuário.** Decisão da spec; a matriz de autorização mudaria se
 papéis se acumulassem.
+
+**Cobertura de concorrência limitada a um cenário.** Só a entrega concorrente do
+mesmo `event_id` tem teste que coloca duas execuções em disputa. Deslocamento de
+posição, conclusão de upload e publicação simultâneas contam com lock, transação e
+constraint, mas não com teste dedicado que os exercite sob corrida real. É lacuna
+de cobertura assumida por priorização: os mecanismos permanecem, a verificação
+automatizada deles não.
 
 ### 19.2 Evoluções naturais
 
 Expiração e cancelamento de tentativas; retomada entre sessões, persistindo o
-plano de partes; checksum por parte; provedor de processamento real substituindo
-o simulador pelo mesmo contrato; atualização por WebSocket ou SSE no lugar do
-polling; ambiente público como diferencial; cookies assinados ou tokens por
-sessão de player; observabilidade com métricas e tracing.
+plano de partes; envio de partes em paralelo; reordenação de módulos e aulas;
+checksum por parte; provedor de processamento real substituindo o simulador pelo
+mesmo contrato; atualização por WebSocket ou SSE no lugar do polling; ambiente
+público como diferencial; cookies assinados ou tokens por sessão de player;
+observabilidade com métricas e tracing.
 
 Nenhuma delas exige reescrever o domínio — é o retorno esperado das portas da
 seção 5.3.
@@ -1658,18 +1763,18 @@ Cada `ABERTO` da `spec.md` e onde este plano o resolve.
 | ID | Decisão em aberto | Resolvido em | Escolha |
 | --- | --- | --- | --- |
 | ABERTO-001 | Autenticação, sessão, CORS, CSRF, armazenamento no cliente | §9 | Sanctum SPA, sessão em MySQL, cookie `HttpOnly`, origens explícitas |
-| ABERTO-002 | Storage e transferência direta, envio em partes | §11 | RustFS S3-compatible, multipart 64 MiB, 3 concorrentes, URLs temporárias |
+| ABERTO-002 | Storage e transferência direta, envio em partes | §11 | RustFS S3-compatible, multipart 64 MiB, uma parte por vez, URLs temporárias |
 | ABERTO-003 | Verificação do objeto enviado | §12 | `CompleteMultipartUpload` + `HeadObject` sob lock atômico, validando chave, tamanho, tipo e metadados da tentativa; `ETag` não tratado como MD5 |
 | ABERTO-004 | Mecanismo de fila e forma do worker | §13.1, §13.2 | Database Queue em MySQL, workers separados, despacho pós-commit |
 | ABERTO-005 | Simulador e origem da informação de falha | §13.3, §13.4 | `simulator-worker` isolado chamando o webhook real, sucesso determinístico e falha por comando Artisan sobre tentativa preparada por seed; mensagem de falha derivada internamente, com a carga oficial preservada |
-| ABERTO-006 | Validação de origem do callback | §13.4 | HMAC-SHA256 sobre timestamp e corpo bruto em `X-Webhook-Timestamp` e `X-Webhook-Signature`, `hash_equals`, janela de 5 min; idempotência por fingerprint semântica |
+| ABERTO-006 | Validação de origem do callback | §13.4 | HMAC-SHA256 sobre timestamp e corpo bruto em `X-Webhook-Timestamp` e `X-Webhook-Signature`, `hash_equals`, janela de 5 min; idempotência pelo `event_id` e pelo desfecho persistido |
 | ABERTO-007 | Disponibilização do conteúdo para reprodução | §14.2 | Objeto privado, URL `GET` pré-assinada de 5 minutos pós-autorização |
 | ABERTO-008 | Renderização do Nuxt e organização de estado | §15.1, §15.2 | SPA `ssr: false`, `useState` só para sessão, polling enquanto transitório |
 | ABERTO-009 | Biblioteca de UI | §15.5 | Nuxt UI v4 com Tailwind CSS 4, única biblioteca principal |
 | ABERTO-010 | Contratos, paginação e formato de erro | §10 | Envelope `data`, `meta`/`links`, paginação 15 por padrão e 50 no máximo, `problem+json`, OpenAPI 3.1, sem `/v1` |
-| ABERTO-011 | Agregados, entidades, VOs e limites transacionais | §5, §6, §7.4, §8 | Quatro camadas, três áreas; `Course`, `Module`, `Lesson` e `VideoAttempt` como agregados separados, coordenados por caso de uso com lock explícito; um repositório por raiz |
+| ABERTO-011 | Agregados, entidades, VOs e limites transacionais | §5, §6, §7.4, §8 | Quatro camadas, três áreas; `Course`, `Module`, `Lesson` e `VideoAttempt` como agregados separados, coordenados por caso de uso com lock explícito; um repositório por raiz; value objects apenas onde carregam regra |
 | ABERTO-012 | Composição do ambiente containerizado | §16 | Compose com oito serviços, healthcheck de processo no `api` e HTTP no `web`, volumes, imagens fixadas, sem Redis |
-| ABERTO-013 | Ferramentas de teste, lint e análise estática | §17 | PHPUnit, Pint, PHPStan/Larastan, Vitest, ESLint, typecheck, Playwright |
+| ABERTO-013 | Ferramentas de teste, lint e verificação adicional | §17 | PHPUnit e Pint; Vitest, ESLint, typecheck e build; Playwright no fluxo integrado |
 | ABERTO-014 | Retomada, cancelamento, descarte e expiração de upload | §11.2, §19.1 | Retry por parte e renovação de URL dentro da tentativa; o resto documentado como limitação |
 
 ---
@@ -1683,7 +1788,7 @@ permaneça rastreável.
 
 | # | Decisão | Escolha | Onde está detalhada |
 | --- | --- | --- | --- |
-| 1 | Formato do identificador | UUIDv7 em `CHAR(36)`, charset `ascii`, collation `ascii_bin`, encapsulado em value objects por tipo | §7.1 |
+| 1 | Formato do identificador | UUIDv7 em `CHAR(36)`, charset `ascii`, collation `ascii_bin`, manipulado como string e validado nas fronteiras | §7.1 |
 | 2 | Momento da transição `pending → uploading` | No primeiro pedido de URL de parte, sem endpoint adicional | §11.3 |
 | 3 | Critério determinístico do simulador | Sucesso determinístico no fluxo normal; falha por comando Artisan sobre tentativa preparada por seed, com `event_id` estável e pelo webhook real | §13.3 |
 | 4 | Origem da informação de falha | Derivada internamente pelo backend; a carga oficial do webhook permanece sem campo adicional | §13.4 |
