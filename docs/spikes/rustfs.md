@@ -222,21 +222,29 @@ alguma coisa porque a reprovação foi demonstrada.
 Nenhuma delas bloqueou a validação. Duas seguem em aberto, e o texto abaixo
 distingue o que já está exigido em tarefa do que é apenas recomendação.
 
-**Uma única parte.** O experimento exerceu o protocolo multipart com uma parte,
-o que prova abertura, assinatura, envio, conclusão e verificação — mas não a
-montagem de várias partes nem a concorrência de três transferências que o plano
-prevê. O que está previsto: **T042** retoma a integração real contra o storage,
-exercitando cada operação da porta, e **T088** cobre particionamento,
-concorrência limitada a três e renovação de URL no lado do navegador. Nenhuma
-das duas exige hoje, de forma explícita, um envio real com mais de uma parte —
-essa é uma **cobertura recomendada** para T042, não uma garantia já presente.
+**Uma única parte — coberto depois, em T042.** O experimento exerceu o protocolo
+multipart com uma parte, o que prova abertura, assinatura, envio, conclusão e
+verificação, mas não a montagem de várias partes.
 
-**A expiração não foi aguardada.** As validades configuradas — 900 segundos para
-a URL de parte, 300 para a de reprodução — foram conferidas na URL gerada, mas
-não se esperou o prazo vencer para observar a recusa. Se o storage aceitasse o
-valor e ignorasse o prazo, o experimento não perceberia. Um caso com validade
-curta, curto o bastante para expirar durante o teste, é igualmente uma
-**cobertura recomendada**, e não algo que alguma tarefa já exija.
+A lacuna foi fechada: **T042 implementou a porta de storage e seu adapter, e o
+teste de integração executa um multipart real de duas partes** — a primeira com
+os 5 MiB mínimos do protocolo, a segunda menor — enviadas pelas URLs assinadas,
+concluídas pelo adapter, inspecionadas e lidas de volta com comparação byte a
+byte. A montagem de várias partes deixou de ser presumida.
+
+**T088** cobre, no lado do navegador, o particionamento, o progresso e a
+renovação de URL. Ela envia **uma parte por vez**: o plano abandonou a ideia de
+transferências simultâneas, e o envio sequencial é o que está registrado em
+plan §11.2 — com um único envio em voo, a parte que falhou é sempre a última, e
+retomar é reenviá-la.
+
+**A expiração não foi aguardada, e continua sem ser.** As validades configuradas
+— 900 segundos para a URL de parte, 300 para a de reprodução — foram conferidas
+na URL gerada, mas não se esperou o prazo vencer para observar a recusa. Se o
+storage aceitasse o valor e ignorasse o prazo, nem o experimento nem o teste de
+integração de T042 perceberiam. Um caso com validade curta o bastante para
+expirar durante a execução permanece **cobertura recomendada**, e não algo que
+alguma tarefa exija.
 
 **A versão validada é release candidate.** `1.0.0-rc.5` não é uma versão
 estável. A referência está fixada por tag e digest, então o ambiente é

@@ -16,6 +16,8 @@ use App\Shared\Application\Port\Clock;
 use App\Shared\Application\Port\TransactionManager;
 use App\Shared\Infrastructure\Clock\SystemClock;
 use App\Shared\Infrastructure\Transaction\DatabaseTransactionManager;
+use App\Video\Application\Port\ObjectStorage;
+use App\Video\Infrastructure\Storage\S3ObjectStorage;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -41,6 +43,16 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ModuleRepository::class, EloquentModuleRepository::class);
         $this->app->singleton(LessonRepository::class, EloquentLessonRepository::class);
         $this->app->singleton(CatalogReadModel::class, EloquentCatalogReadModel::class);
+
+        // O adapter de storage e o unico registro que nao e uma classe para
+        // outra: ele precisa da configuracao para montar os dois clientes do SDK,
+        // e a configuracao e resolvida aqui em vez de dentro do adapter — que
+        // assim continua construivel com valores explicitos, inclusive nos testes
+        // que apontam para um endereco indisponivel de proposito.
+        $this->app->singleton(
+            ObjectStorage::class,
+            static fn (): ObjectStorage => S3ObjectStorage::fromConfig(config('storage')),
+        );
     }
 
     public function boot(): void

@@ -243,9 +243,16 @@ gravados por casos de uso distintos do catálogo.
 | `Clock` | Shared | Relógio do sistema; fixo nos testes |
 | `TransactionManager` | Shared | Transação do Laravel sobre a conexão MySQL |
 
-`ObjectStorage` é a porta que sustenta a substituibilidade exigida por RF-PROC-003
-e a troca de storage: ela fala em criar upload, emitir URL de parte, concluir,
-inspecionar e emitir URL de leitura — vocabulário do problema, não da AWS.
+`ObjectStorage` é a porta de ABERTO-002: ela sustenta a transferência direta
+entre navegador e storage exigida por RNF-001 e mantém o storage substituível.
+Fala em criar upload, emitir URL de parte, concluir, inspecionar e emitir URL de
+leitura — vocabulário do problema, não da AWS.
+
+`ProcessingGateway` é a porta de RF-PROC-003, e a distinção entre as duas
+importa: RF-PROC-003 é sobre o **serviço de processamento** ser substituível, e
+não sobre o storage. Trocar o RustFS por outro provedor compatível é assunto de
+`ObjectStorage`; trocar o simulador por um provedor real de processamento é
+assunto de `ProcessingGateway`.
 
 `CatalogReadModel` é a exceção que confirma a regra dos repositórios: uma porta
 **somente de leitura**. Ela não tem operação de gravação nem de trava, e nunca
@@ -1200,11 +1207,13 @@ Falha em qualquer uma leva a tentativa a `failed` com `failure_code` e mensagem
 segura (RF-UPL-013). Encerrar a tentativa é o que libera um novo envio sem
 precisar de uma operação de descarte que a spec não prevê.
 
-### 12.4 Resultado ambíguo e falha transitória
+### 12.4 Resultado ambíguo e ausência de evidência
 
-Nem toda exceção é falha definitiva do vídeo. Tratar uma queda momentânea de rede
-como se o arquivo fosse inválido destrói um envio de gigabytes por um problema
-que se resolveria repetindo a chamada.
+Nem toda exceção é falha definitiva do vídeo. Só uma coisa autoriza levar a
+tentativa a `failed`: **evidência confiável de que o objeto está ausente ou
+incompatível**. Tratar uma queda de rede, uma credencial errada ou uma resposta
+desconhecida como se o arquivo fosse inválido destrói um envio de gigabytes por
+um problema que não é do arquivo.
 
 Se `CompleteMultipartUpload` retornar `NoSuchUpload` ou produzir resultado
 ambíguo — o caso típico de uma conclusão anterior que efetivou no storage mas
@@ -1213,19 +1222,56 @@ perdeu a resposta —, o `HeadObject` decide:
 | Situação observada | Tratamento |
 | --- | --- |
 | Objeto existe e passa nas quatro verificações | Reconcilia como conclusão anterior bem-sucedida: transiciona para `uploaded` e segue o fluxo normal |
-| Objeto ausente ou incompatível de forma definitiva | Transiciona para `failed` (RF-UPL-013) |
-| Storage indisponível ou erro transitório | Preserva `uploading` e responde erro temporário; o cliente pode repetir a conclusão |
+| O storage confirma, de forma confiável, objeto ausente ou incompatível | Transiciona para `failed` (RF-UPL-013) |
+| A aplicação não consegue avaliar o objeto | Preserva `uploading`, não inicia processamento e responde falha de infraestrutura; o cliente pode repetir a conclusão |
 
-O terceiro caso é o que distingue este plano de um tratamento ingênuo: o estado do
-domínio não muda enquanto a aplicação não tiver uma resposta confiável do
-storage.
+O terceiro caso é o que distingue este plano de um tratamento ingênuo, e ele é
+mais largo do que "storage fora do ar". Cobre três famílias:
 
-### 12.5 ETag não é MD5
+- **indisponibilidade ou falha transitória** — conexão recusada, tempo esgotado,
+  resposta pedindo nova tentativa, falha do servidor;
+- **credencial, permissão, assinatura ou configuração incorreta** — a chamada
+  chegou e foi recusada, mas por um motivo que não é sobre o conteúdo enviado;
+- **resposta que o adapter não reconhece com segurança** — o storage recusou por
+  um motivo que a aplicação não sabe classificar.
 
-O `ETag` de um objeto multipart **não** é o MD5 do arquivo: é um hash dos hashes
-das partes com sufixo de contagem. Tratá-lo como checksum de integridade produz
-falso negativo garantido. A verificação deste plano usa existência, chave,
-tamanho e tipo — propriedades que o `HeadObject` reporta de forma confiável.
+O que as três têm em comum é o que falta: **evidência sobre o arquivo**. Nenhuma
+delas prova que o objeto está ausente ou incompatível, e é essa prova — e só ela —
+que autoriza `failed`. Em todas as três o tratamento é o mesmo:
+
+- preservar `uploading`;
+- não iniciar processamento;
+- responder falha de infraestrutura, e não falha do vídeo;
+- permitir nova tentativa depois que a integração estiver disponível ou corrigida.
+
+A classificação é feita pelo adapter de storage, que traduz a resposta do
+provedor antes de ela chegar ao caso de uso: só uma lista fechada de recusas
+reconhecidas sobre o conteúdo — parte inválida, fora de ordem, menor que o mínimo
+— chega como recusa definitiva. Tudo o mais chega como ausência de evidência.
+
+**O trade-off é assumido.** Um erro permanente de configuração — credencial
+trocada, endereço errado — cai nesta terceira linha e será repetido até alguém
+corrigi-lo, em vez de falhar de uma vez. É o preço de não confundir problema do
+ambiente com arquivo defeituoso: uma configuração equivocada classificada como
+recusa marcaria vídeos legítimos como `failed`, e o produtor perderia envios de
+gigabytes por uma falha que não é dele. Repetir custa tentativas; condenar custa
+o upload.
+
+### 12.5 O `ETag` não é o checksum do vídeo
+
+**O `ETag` não possui garantia portátil de ser o MD5 do arquivo completo.** Seu
+formato e seu cálculo podem variar conforme o provedor, a quantidade de partes,
+criptografia e configuração — e nada no protocolo obriga um valor específico.
+
+Neste projeto ele é tratado como um **comprovante opaco da parte**, necessário
+para concluir o envio multipart, e não como checksum do vídeo: é devolvido ao
+storage exatamente como foi recebido, e nenhuma decisão o interpreta. Construir
+verificação de integridade sobre ele seria apoiar uma garantia em algo que o
+protocolo não promete, e a falha apareceria ao trocar de provedor ou ao mudar o
+número de partes.
+
+A verificação deste plano usa existência, chave, tamanho e tipo — propriedades
+que o `HeadObject` reporta de forma confiável.
 
 Verificação criptográfica ponta a ponta exigiria checksum por parte declarado
 pelo cliente e conferido pelo storage. Fica como evolução futura (seção 19), não
@@ -1856,12 +1902,17 @@ de domínio depender dele.** T001 executou o spike e T002 registrou a evidência
 comprovados na prática — upload multipart, política de CORS, `HeadObject` e URLs
 pré-assinadas —, e o RustFS ficou aprovado para a arquitetura.
 
-O que o spike **não** cobriu continua valendo como limitação conhecida: o envio
-usou **uma única parte**, a expiração das URLs foi configurada mas o prazo real
-não chegou a vencer durante a validação, e a versão aprovada é uma **release
-candidate**. Nada disso invalidou a escolha, e nada disso significa que o storage
-definitivo ou o upload da aplicação já existam: o adapter chega em T042 e o fluxo
-de envio em T043.
+Duas das três lacunas do spike continuam abertas, e uma foi fechada. **O envio
+de uma única parte deixou de ser limitação:** T042 implementou a porta
+`ObjectStorage` e o adapter S3, e o teste de integração executa um multipart real
+de duas partes contra o storage do Compose, com inspeção e leitura verificadas.
+Seguem valendo: a expiração das URLs foi configurada mas o prazo real nunca
+chegou a vencer durante a validação, e a versão aprovada é uma **release
+candidate**.
+
+O adapter existir não significa que o envio exista: a aplicação ainda não abre,
+conclui nem verifica upload nenhum. O agregado `VideoAttempt` e o fluxo de envio
+chegam em T043.
 
 **Sanctum exige domínio-base compartilhado.** Frontend e API precisam
 compartilhar o domínio-base no ambiente publicado — restrição a considerar se

@@ -1004,11 +1004,11 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
 
 ## Fase 6 — Upload multipart
 
-- [ ] **T042** Porta `ObjectStorage` e adapter do RustFS
+- [x] **T042** Porta `ObjectStorage` e adapter do RustFS
   - **Objetivo:** isolar o storage atrás de um contrato do problema, não da AWS.
   - **Arquivos previstos:** `Video/Application/Port/ObjectStorage.php`,
     `Video/Infrastructure/Storage/`, configuração de endereço interno e público.
-  - **Requisitos:** ABERTO-002; RF-PROC-003; RNF-001; AC-VID-001; plan §5.3.
+  - **Requisitos:** ABERTO-002; RNF-001; AC-VID-001; plan §5.3.
   - **Implementação:** a porta fala em criar envio, emitir URL de parte, concluir,
     inspecionar e emitir URL de leitura. O adapter traduz para o SDK. Endereço
     interno para as chamadas do backend, endereço público para as URLs entregues
@@ -1059,13 +1059,23 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
     `CompleteMultipartUpload`, `HeadObject`, e nova transação que reavalia e
     transiciona. **Nenhuma transação MySQL aberta enquanto o storage responde.**
     Verificar chave esperada, tamanho declarado, `Content-Type` aceito e metadados
-    com o identificador da tentativa; falha em qualquer uma leva a `failed` com
-    código e mensagem do catálogo. O `ETag` **não** é usado como checksum.
-    Tentativa fora de `uploading` devolve o desfecho já obtido, sem novo
-    processamento. Diante de `NoSuchUpload` ou resposta ambígua, o `HeadObject`
-    decide: objeto válido reconcilia como conclusão anterior bem-sucedida;
-    ausência definitiva leva a `failed`; indisponibilidade transitória **preserva
-    `uploading`** e responde erro temporário.
+    com o identificador da tentativa; **confirmada de forma confiável** a falha em
+    qualquer uma delas, a tentativa vai a `failed` com código e mensagem do
+    catálogo. O `ETag` **não** é usado como checksum. Tentativa fora de
+    `uploading` devolve o desfecho já obtido, sem novo processamento. Diante de
+    `NoSuchUpload` ou resposta ambígua, o `HeadObject` decide: objeto válido
+    reconcilia como conclusão anterior bem-sucedida; ausência confirmada leva a
+    `failed`.
+
+    **Só evidência confiável autoriza `failed`.** Quando a aplicação não consegue
+    avaliar o objeto — indisponibilidade ou falha transitória; credencial,
+    permissão, assinatura ou configuração incorreta; resposta que o adapter não
+    reconheça com segurança — não há prova sobre o arquivo, e o desfecho é outro:
+    **preserva `uploading`**, não inicia processamento, responde falha de
+    infraestrutura e deixa a conclusão repetível depois que a integração estiver
+    disponível ou corrigida (plan §12.4). A porta já entrega essa distinção
+    classificada: `StorageUnavailable` é ausência de evidência, e não recusa do
+    conteúdo.
 
     **Consulta** — `GET /api/lessons/{lesson}/video` devolve o estado e, quando
     houver, a informação pública de falha.
@@ -1077,6 +1087,14 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
     processamento adicional; os três desfechos do resultado ambíguo; envio
     interrompido permanecendo em `uploading` sem jamais alcançar `uploaded`; e
     todos os estados representados na consulta.
+
+    **Mais um cenário, sobre falha de integração:** com a porta `ObjectStorage`
+    substituída por uma que produz `StorageUnavailable`, a conclusão precisa
+    deixar a tentativa **em `uploading`**, não iniciar processamento nenhum,
+    responder falha de infraestrutura e **não gravar `failure_code`** — nem
+    qualquer outra marca definitiva. O teste usa a exceção da porta diretamente;
+    não repete a configuração de credencial inválida, porque a tradução da
+    resposta do provedor em `StorageUnavailable` já está coberta pela T042.
     `docker compose run --rm api php artisan test --filter=Upload`.
   - **Depende de:** T042.
   - **Critério de conclusão:** AC-VID-001, 002, 003, 010, 011 e 012 verdes.

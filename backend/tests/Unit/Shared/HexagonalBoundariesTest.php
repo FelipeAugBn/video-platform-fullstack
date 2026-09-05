@@ -33,8 +33,13 @@ final class HexagonalBoundariesTest extends TestCase
     /**
      * Raizes de namespace que nao podem aparecer em `Domain` nem em
      * `Application`.
+     *
+     * `Aws`, `GuzzleHttp` e `Psr` entraram junto com o adapter de storage: um SDK
+     * vaza para dentro exatamente pelo mesmo caminho que um framework, e a porta
+     * de armazenamento so vale alguma coisa enquanto nenhum tipo do SDK
+     * atravessa a assinatura dela.
      */
-    private const FRAMEWORK = ['Illuminate', 'Symfony', 'Laravel'];
+    private const FRAMEWORK = ['Illuminate', 'Symfony', 'Laravel', 'Aws', 'GuzzleHttp', 'Psr'];
 
     /**
      * @return iterable<string, array{string}>

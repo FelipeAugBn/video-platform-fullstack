@@ -423,13 +423,31 @@ consciente do MVP, em `plan.md` §§11.2 e 19.1.
 - **RF-UPL-008** `[OBRIGATÓRIO]` A aplicação não confia exclusivamente na
   declaração do cliente como prova de que o objeto está disponível e válido. A
   existência e os metadados básicos do objeto são verificados pelo backend.
-- **RF-UPL-009** `[OBRIGATÓRIO]` Quando a verificação falha, o vídeo não avança
-  para `uploaded` e a falha é comunicada de forma compreensível.
-- **RF-UPL-013** `[DECISÃO]` Quando a conclusão é solicitada e o objeto está
-  ausente ou incompatível com o que foi declarado, a tentativa passa para
-  `failed`. Encerrar a tentativa em vez de deixá-la pendente é o que permite ao
-  produtor iniciar um novo envio pela regra RF-UPL-005, sem depender de uma
-  operação de descarte.
+- **RF-UPL-009** `[OBRIGATÓRIO]` Quando a verificação não confirma o objeto, o
+  vídeo não avança para `uploaded` e a falha é comunicada de forma compreensível.
+
+  **Não avançar e encerrar a tentativa são desfechos diferentes**, e o que os
+  separa é a qualidade da evidência:
+
+  - o armazenamento **confirma de forma confiável** que o objeto está ausente ou
+    incompatível com o declarado → a tentativa passa para `failed` (RF-UPL-013);
+  - a aplicação **não consegue avaliar** o objeto — indisponibilidade, falha de
+    rede, credencial, permissão, assinatura, configuração incorreta ou resposta
+    que ela não reconheça com segurança → a tentativa **permanece em
+    `uploading`** e a API comunica falha de infraestrutura, não falha do vídeo.
+
+  Nenhuma dessas segundas situações é prova sobre o arquivo do produtor. Tratá-las
+  como se fossem faria um problema do ambiente destruir um envio legítimo de
+  vários gigabytes, e o produtor pagaria por uma falha que não é dele.
+- **RF-UPL-013** `[DECISÃO]` Quando a conclusão é solicitada e o armazenamento
+  confirma de forma confiável que o objeto está ausente ou incompatível com o que
+  foi declarado, a tentativa passa para `failed`. Encerrar a tentativa em vez de
+  deixá-la pendente é o que permite ao produtor iniciar um novo envio pela regra
+  RF-UPL-005, sem depender de uma operação de descarte.
+
+  A confirmação confiável é condição, e não formalidade: sem ela vale a segunda
+  regra de RF-UPL-009, e a tentativa continua em `uploading` aguardando nova
+  solicitação de conclusão.
 - **RF-UPL-010** `[OBRIGATÓRIO]` Conclusão repetida do mesmo envio não inicia
   processamentos duplicados (RN-IDM-001).
 
@@ -454,7 +472,7 @@ Transições permitidas `[DECISÃO]`:
 | --- | --- | --- |
 | `pending` | `uploading` | Início da transferência pelo cliente |
 | `uploading` | `uploaded` | Conclusão verificada pelo backend |
-| `uploading` | `failed` | Conclusão solicitada e objeto ausente ou incompatível na verificação (RF-UPL-013) |
+| `uploading` | `failed` | Conclusão solicitada e armazenamento confirmando de forma confiável que o objeto está ausente ou incompatível (RF-UPL-013) |
 | `uploaded` | `processing` | Início do processamento assíncrono |
 | `processing` | `ready` | Callback de sucesso com referência de reprodução |
 | `processing` | `failed` | Callback de falha |
@@ -720,7 +738,7 @@ após falhas de rede e callbacks que chegam repetidos ou fora do fluxo esperado.
 | ID | Situação | Comportamento esperado |
 | --- | --- | --- |
 | **RF-ERR-001** | Transferência interrompida | O vídeo nunca é tratado como concluído: não avança para `uploaded` nem `ready`. Sem solicitação de conclusão, a tentativa permanece em `uploading` (RN-VID-005). A interface exibe a falha da transferência e não presume sucesso. A recuperação decidida em ABERTO-014 se limita à tentativa atual |
-| **RF-ERR-002** | Conclusão sem objeto válido | A verificação falha, o vídeo não avança para `uploaded` e o produtor recebe motivo compreensível (RF-UPL-009). A tentativa passa para `failed` (RF-UPL-013) |
+| **RF-ERR-002** | Conclusão com objeto confirmadamente ausente ou incompatível | Quando o armazenamento **confirma de forma confiável** a ausência ou a incompatibilidade, o vídeo não avança para `uploaded`, o produtor recebe motivo compreensível (RF-UPL-009) e a tentativa passa para `failed` (RF-UPL-013). Quando a aplicação **não consegue avaliar** o objeto — indisponibilidade, credencial, permissão, assinatura, configuração ou resposta desconhecida —, não há evidência sobre ele: a tentativa permanece em `uploading`, nenhum processamento é iniciado e a resposta comunica falha de infraestrutura, deixando a conclusão repetível (RF-UPL-009) |
 | **RF-ERR-003** | Conclusão repetida | Reconhecida sem duplicar processamento (RN-IDM-001) |
 | **RF-ERR-004** | Falha de processamento | O vídeo vai a `failed` com informação compreensível; a aula não se torna publicável |
 | **RF-ERR-005** | Nova tentativa após falha | Um novo envio substitui a tentativa em `failed` e cria uma nova tentativa em `pending` (RF-UPL-005). Enquanto a tentativa não estiver em `failed`, o novo envio é rejeitado (RF-UPL-011) |
@@ -865,8 +883,9 @@ Quando ele recebe a resposta de início
 Então a resposta fornece os dados para transferência direta ao destino de armazenamento
 E o conteúdo do arquivo não trafega pela aplicação Laravel nem pelo servidor Nuxt
 
-**AC-VID-002 — a conclusão falha quando o objeto não pode ser validado**
-Dado um envio iniciado cujo objeto não existe no destino ou não corresponde ao declarado
+**AC-VID-002 — a conclusão falha quando o objeto é confirmadamente inválido**
+Dado um envio iniciado cujo objeto o destino de armazenamento confirma, de forma confiável, não existir ou não corresponder ao declarado
+E que essa confirmação não decorre de indisponibilidade, credencial, permissão, assinatura, configuração ou resposta desconhecida
 Quando o cliente solicita a conclusão
 Então a conclusão é rejeitada
 E o vídeo não avança para `uploaded`
