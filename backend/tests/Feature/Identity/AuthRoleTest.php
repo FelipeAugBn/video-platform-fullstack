@@ -115,14 +115,22 @@ final class AuthRoleTest extends TestCase
     public function test_as_rotas_de_teste_nao_existem_na_aplicacao(): void
     {
         // O teste registra as proprias rotas; o arquivo de rotas de producao
-        // continua com apenas as tres de autenticacao.
+        // continua com apenas as de autenticacao e as do catalogo do produtor.
         $rotas = collect(Route::getRoutes()->getRoutes())
             ->map(fn ($rota): string => (string) $rota->uri())
             ->filter(fn (string $uri): bool => str_starts_with($uri, 'api/'))
+            // Um mesmo endereco pode ser servido por mais de um metodo — a
+            // colecao de cursos atende `GET` e `POST`. A afirmacao e sobre quais
+            // enderecos existem, e nao sobre quantas vezes cada um aparece.
+            ->unique()
             ->values();
 
         $this->assertEqualsCanonicalizing(
-            ['api/auth/login', 'api/auth/me', 'api/auth/logout', 'api/_teste/area-do-produtor', 'api/_teste/area-do-consumidor'],
+            [
+                'api/auth/login', 'api/auth/me', 'api/auth/logout',
+                'api/courses', 'api/courses/{course}',
+                'api/_teste/area-do-produtor', 'api/_teste/area-do-consumidor',
+            ],
             $rotas->all(),
         );
     }

@@ -921,7 +921,7 @@ nenhuma rota nasça num formato que depois precise ser reescrito.
 Cada agregado chega junto do seu repositório e dos seus endpoints — decomposição
 vertical. Nenhum adapter é criado antes do agregado que ele persiste.
 
-- [ ] **T034** Agregado `Course`, isolamento por propriedade e endpoints de curso
+- [x] **T034** Agregado `Course`, isolamento por propriedade e endpoints de curso
   - **Objetivo:** o produtor cria, lista e consulta os próprios cursos, e não
     alcança nem descobre os alheios.
   - **Arquivos previstos:** `Catalog/Domain/Course.php`,

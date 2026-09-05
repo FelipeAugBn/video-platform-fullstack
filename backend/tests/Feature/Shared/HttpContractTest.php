@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use ReflectionMethod;
 use RuntimeException;
@@ -45,20 +46,6 @@ final class HttpContractTest extends TestCase
     private const MENSAGEM_INTERNA = 'detalhe-interno-que-nunca-pode-vazar-9f3a';
 
     private const PREFIXO = '_contrato';
-
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        // Um dos testes provoca uma excecao de proposito, e o canal de log deste
-        // ambiente e a saida de erro do processo — o registro dela apareceria no
-        // meio do resultado da suite, com pilha inteira, parecendo defeito.
-        //
-        // O destino e trocado, e nao o registro: o requisito e que o detalhe
-        // interno nao apareca na *resposta*, e o tratamento de erro continua
-        // reportando normalmente (RN-AUT-005).
-        config(['logging.default' => 'null']);
-    }
 
     // -----------------------------------------------------------------------
     // Sucesso
@@ -218,6 +205,7 @@ final class HttpContractTest extends TestCase
     public function test_resposta_de_erro_que_nao_e_validacao_nao_traz_errors(): void
     {
         $this->registrarRotas();
+        $this->capturarLog();
 
         $caminhos = [
             'erro-de-dominio', 'nao-autenticado', 'proibido', 'autorizacao-negada',
@@ -234,6 +222,7 @@ final class HttpContractTest extends TestCase
     public function test_cada_situacao_recebe_o_status_e_o_codigo_previstos(): void
     {
         $this->registrarRotas();
+        $this->capturarLog();
 
         $esperado = [
             'nao-autenticado' => [401, 'UNAUTHENTICATED'],
@@ -258,6 +247,7 @@ final class HttpContractTest extends TestCase
     public function test_todo_erro_da_api_usa_o_content_type_de_problema(): void
     {
         $this->registrarRotas();
+        $this->capturarLog();
 
         $caminhos = [
             'erro-de-dominio', 'nao-autenticado', 'proibido', 'autorizacao-negada',
@@ -400,6 +390,7 @@ final class HttpContractTest extends TestCase
     public function test_erro_inesperado_responde_generico_mesmo_com_depuracao_ligada(): void
     {
         $this->registrarRotas();
+        $this->capturarLog();
         config(['app.debug' => true]);
 
         $resposta = $this->getJson('/api/'.self::PREFIXO.'/erro-inesperado');
@@ -417,6 +408,7 @@ final class HttpContractTest extends TestCase
     public function test_resposta_de_erro_nao_carrega_rastro_de_execucao(): void
     {
         $this->registrarRotas();
+        $this->capturarLog();
         config(['app.debug' => true]);
 
         $bruto = $this->getJson('/api/'.self::PREFIXO.'/erro-inesperado')->getContent();
@@ -483,9 +475,12 @@ final class HttpContractTest extends TestCase
             ->all();
 
         $this->assertEqualsCanonicalizing(
-            ['api/auth/login', 'api/auth/me', 'api/auth/logout'],
+            [
+                'api/auth/login', 'api/auth/me', 'api/auth/logout',
+                'api/courses', 'api/courses/{course}',
+            ],
             $uris,
-            'Sob o prefixo da API existem apenas as rotas de autenticacao nesta etapa.',
+            'Sob o prefixo da API existem apenas autenticacao e o catalogo do produtor nesta etapa.',
         );
 
         // As rotas que a propria suite registra para exercitar o contrato
@@ -527,6 +522,21 @@ final class HttpContractTest extends TestCase
     // -----------------------------------------------------------------------
     // Apoio
     // -----------------------------------------------------------------------
+
+    /**
+     * Captura o log em vez de escreve-lo, e apenas nos testes que provocam de
+     * proposito uma excecao inesperada.
+     *
+     * O canal deste ambiente e a saida de erro do processo: sem isto, a pilha da
+     * excecao deliberada apareceria no meio do resultado da suite parecendo
+     * defeito. O espiao evita a escrita **sem** desligar o relato — o
+     * comportamento continua o de producao, e nenhum outro teste do arquivo tem
+     * o log alterado.
+     */
+    private function capturarLog(): void
+    {
+        Log::spy();
+    }
 
     /**
      * Registra as rotas que provocam cada comportamento do contrato.

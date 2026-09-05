@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Shared\Interfaces\Http\Resource;
 
+use App\Shared\Application\Page;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Contracts\Support\Responsable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator as Paginador;
+use Illuminate\Pagination\Paginator;
 
 /**
  * Resposta de listagem paginada, no formato aprovado (plan §10.1).
@@ -39,6 +42,50 @@ final class PaginatedResponse implements Responsable
     public static function of(LengthAwarePaginator $page, ?string $resource = null): self
     {
         return new self($page, $resource);
+    }
+
+    /**
+     * A mesma resposta, a partir do resultado neutro da camada Application.
+     *
+     * O repositorio devolve uma `Page` — itens de dominio, pagina, tamanho e
+     * total —, porque a porta nao pode conhecer `Illuminate\Pagination`
+     * (plan §5.1). A traducao para o paginador do framework acontece **aqui**,
+     * na camada de interface, que e onde `meta` e `links` foram decididos.
+     *
+     * O caminho dos links vem da requisicao em curso, e nao e recebido por
+     * parametro: e o mesmo comportamento do paginador padrao do framework, e
+     * passa-lo adiante faria cada controller repetir a mesma linha.
+     */
+    public static function ofPage(Page $page, ?string $resource = null): self
+    {
+        $paginador = new Paginador(
+            items: $page->items,
+            total: $page->total,
+            perPage: $page->perPage,
+            currentPage: $page->currentPage,
+            options: ['path' => Paginator::resolveCurrentPath()],
+        );
+
+        // Os links precisam carregar o tamanho da pagina.
+        //
+        // Sem isto, `next` apontaria apenas para `?page=2`, e seguir o proprio
+        // link que a API entregou devolveria o cliente ao padrao de 15 — as
+        // paginas mudariam de tamanho no meio da navegacao, e itens seriam
+        // pulados ou repetidos. Paginacao cujos links nao sao navegaveis nao e
+        // paginacao.
+        //
+        // `withQueryString` preserva o que mais vier na consulta, para que um
+        // filtro acrescentado numa tarefa futura sobreviva a navegacao sem que
+        // este arquivo precise saber dele. O `page` fica de fora por conta do
+        // proprio paginador: cada link escreve o seu.
+        $paginador->withQueryString();
+
+        // O tamanho anunciado e o **efetivo**, e nao o que foi pedido. Quem
+        // pediu 500 recebeu 50, e o link precisa dizer 50: repetir o pedido
+        // original faria o link prometer uma pagina que a API nao entrega.
+        $paginador->appends('per_page', (string) $page->perPage);
+
+        return new self($paginador, $resource);
     }
 
     public function toResponse($request): JsonResponse

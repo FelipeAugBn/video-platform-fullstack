@@ -10,13 +10,14 @@ real neste repositório.
 
 ## O que já existe
 
-O banco completo, os dados de avaliação e a **autenticação**: as três contas
-abaixo entram pela API, a sessão é mantida por cookie e cada perfil é reconhecido.
+O banco completo, os dados de avaliação, a **autenticação** e o **catálogo do
+produtor**: as três contas abaixo entram pela API, a sessão é mantida por cookie,
+cada perfil é reconhecido, e um produtor autenticado já cria, lista e consulta os
+próprios cursos — sem alcançar os de outro produtor.
 
-Ainda **não** existem telas nem endpoints de negócio — nenhum curso, aula ou
-vídeo é criado ou consultado pela API neste momento. O que este documento
-descreve é o ponto de partida sobre o qual essas funcionalidades serão
-construídas.
+Ainda **não** existem telas, nem módulos, aulas ou vídeo. O que este documento
+descreve é a primeira fatia vertical completa: regra de negócio, caso de uso,
+persistência e API para um recurso do domínio.
 
 ## Endpoints disponíveis
 
@@ -26,10 +27,16 @@ construídas.
 | `POST /api/auth/login` | Autentica e abre a sessão |
 | `GET /api/auth/me` | Devolve quem está autenticado na sessão atual |
 | `POST /api/auth/logout` | Encerra a sessão |
+| `POST /api/courses` | Cria um curso do produtor autenticado |
+| `GET /api/courses` | Lista, paginados, os cursos do produtor autenticado |
+| `GET /api/courses/{course}` | Devolve um curso do próprio produtor |
 
 A API responde em `http://localhost:8080`.
 
-Três detalhes do comportamento, úteis para quem for avaliar:
+As três rotas de curso exigem sessão válida **e** perfil de produtor. Um
+consumidor autenticado recebe `403`.
+
+Cinco detalhes do comportamento, úteis para quem for avaliar:
 
 - **Uma operação que altera estado exige o cookie de proteção.** Sem ele, a
   resposta é `419` com o código `CSRF_TOKEN_MISMATCH`, e nada é executado. É por
@@ -41,6 +48,25 @@ Três detalhes do comportamento, úteis para quem for avaliar:
 - **Sem sessão, a resposta é `401`**, que é diferente de `403`. O primeiro
   significa "entre de novo"; o segundo, "você está autenticado, mas este perfil
   não pode".
+- **Curso de outro produtor responde `404`, e não `403`.** A resposta é idêntica
+  à de um curso que nunca existiu — mesmo status, mesmo cabeçalho, mesmo corpo.
+  Um `403` confirmaria que aquele identificador existe, e quem percorresse uma
+  lista de identificadores obteria o catálogo alheio sem nunca ver o conteúdo.
+- **A lista e a contagem também respeitam o isolamento.** O `meta.total` de um
+  produtor não inclui cursos de ninguém mais: o recorte por dono acontece na
+  consulta ao banco, antes de contar e paginar. Sem isso, o número sozinho já
+  revelaria quantos cursos os outros produtores têm.
+
+### Cursos: o que esperar
+
+O curso nasce em `draft` e recebe um identificador gerado pelo backend. Título e
+descrição vêm do corpo da requisição; **proprietário, estado, identificador e
+data de criação não** — eles são definidos pelo servidor, e enviá-los no corpo
+não altera nada.
+
+A listagem devolve 15 itens por página por padrão. `per_page` acima de 50 é
+atendido e limitado a 50; `per_page` zero, negativo ou não numérico é recusado
+com `422`. A ordem é do curso mais recente para o mais antigo.
 
 ### Percorrendo o fluxo sem interface
 
@@ -49,6 +75,12 @@ que guarde cookies serve — importe a documentação da API quando ela existir,
 use um cliente de linha de comando com um arquivo de cookies. A sequência é:
 buscar o cookie de proteção, enviar o login com o valor desse cookie no cabeçalho
 `X-XSRF-TOKEN`, consultar `GET /api/auth/me` e encerrar com `POST /api/auth/logout`.
+
+Com a sessão aberta, `POST /api/courses` cria um curso — também exigindo o
+cabeçalho `X-XSRF-TOKEN`, por ser uma operação que altera estado — e
+`GET /api/courses` lista o que aquele produtor tem. Para conferir o isolamento,
+basta pedir, autenticado como um produtor, o identificador de um curso do outro:
+a resposta é `404`.
 
 ## Como os dados são preparados
 
