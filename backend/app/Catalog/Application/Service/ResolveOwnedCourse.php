@@ -37,8 +37,33 @@ final class ResolveOwnedCourse
 
     public function __invoke(string $courseId, string $ownerId): Course
     {
-        $curso = $this->courses->findOwned($courseId, $ownerId);
+        return $this->recusarAusente($this->courses->findOwned($courseId, $ownerId));
+    }
 
+    /**
+     * O mesmo curso, com a linha travada ate o fim da transacao.
+     *
+     * Existe para as operacoes que acrescentam conteudo a arvore do curso. Criar
+     * um modulo le a maior posicao existente e grava a seguinte; sem a trava,
+     * duas requisicoes simultaneas leriam o mesmo maximo e disputariam o mesmo
+     * valor (plan §8.1).
+     *
+     * A recusa e **identica** a da leitura comum, e e por isso que as duas
+     * passam pelo mesmo lugar: um curso alheio nao pode responder diferente
+     * conforme a operacao seja de leitura ou de escrita. Se respondesse, a
+     * tentativa de criar um modulo viraria o oraculo de existencia que a leitura
+     * fecha.
+     *
+     * So faz sentido dentro de uma transacao: fora dela, a trava e liberada na
+     * mesma instrucao em que foi obtida.
+     */
+    public function locked(string $courseId, string $ownerId): Course
+    {
+        return $this->recusarAusente($this->courses->lockOwned($courseId, $ownerId));
+    }
+
+    private function recusarAusente(?Course $curso): Course
+    {
         if ($curso === null) {
             throw new DomainException(Failure::NOT_FOUND);
         }

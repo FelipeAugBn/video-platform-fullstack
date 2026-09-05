@@ -950,20 +950,29 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
   - **Depende de:** T030.
   - **Critério de conclusão:** AC-PROD-001, AC-PROD-002 e AC-PROD-007 verdes.
 
-- [ ] **T037** Módulos, aulas, ordem de criação e estrutura do curso
+- [x] **T037** Módulos, aulas, ordem de criação e estrutura do curso
   - **Objetivo:** a árvore do curso existindo, ordenada, e consultável de uma vez.
   - **Arquivos previstos:** `Catalog/Domain/Module.php`, `Catalog/Domain/Lesson.php`,
     portas e adapters de `ModuleRepository` e `LessonRepository`,
-    `Catalog/Application/CreateModule/`, `CreateLesson/`, `ListModules/`,
-    `GetLesson/`, `GetCourseStructure/`, controllers, requests, resources.
+    `Shared/Application/Port/TransactionManager.php` e seu adapter em
+    `Shared/Infrastructure/Transaction/`, porta de leitura da estrutura com DTOs
+    imutáveis em `Catalog/Application/`, `Catalog/Application/CreateModule/`,
+    `CreateLesson/`, `ListModules/`, `GetLesson/`, `GetCourseStructure/`,
+    controllers, requests, resources.
   - **Requisitos:** RF-MOD-001 a 004, RF-MOD-006, RF-MOD-007; RF-AUL-001 a 004,
     RF-AUL-008, RF-AUL-009; RF-EST-001 a 004; RN-ORD-001 a 004; AC-PROD-003;
-    plan §§6.1, 8.1, 10.4.
+    plan §§5.3, 6.1, 7.4, 8.1, 10.4.
   - **Implementação:** `POST /api/courses/{course}/modules` e
     `POST /api/modules/{module}/lessons`. **A posição não vem no corpo:** o caso
     de uso trava a linha do pai, lê a maior posição existente e grava a seguinte
     (RN-ORD-002). Nenhum item já criado é reescrito. A UNIQUE dentro do pai
     permanece como última linha de defesa. A aula nasce rascunho, sem vídeo.
+
+    O limite da transação é declarado pelo caso de uso através da porta
+    `TransactionManager` (plan §§5.3, 7.4): lock do pai, cálculo da posição e
+    inserção formam uma operação só. O adapter Laravel de Shared/Infrastructure é
+    o único que chama `DB::transaction` — `Application` continua sem importar
+    `Illuminate`.
 
     Leituras: `GET /api/courses/{course}/modules` e `GET /api/lessons/{lesson}`,
     sempre ordenados por posição. E `GET /api/courses/{course}/structure`, que

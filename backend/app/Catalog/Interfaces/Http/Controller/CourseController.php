@@ -8,12 +8,15 @@ use App\Catalog\Application\CreateCourse\CreateCourse;
 use App\Catalog\Application\CreateCourse\CreateCourseCommand;
 use App\Catalog\Application\GetCourse\GetCourse;
 use App\Catalog\Application\GetCourse\GetCourseQuery;
+use App\Catalog\Application\GetCourseStructure\GetCourseStructure;
+use App\Catalog\Application\GetCourseStructure\GetCourseStructureQuery;
 use App\Catalog\Application\ListCourses\ListCourses;
 use App\Catalog\Application\ListCourses\ListCoursesQuery;
 use App\Catalog\Interfaces\Http\Request\CreateCourseRequest;
 use App\Catalog\Interfaces\Http\Request\ListCoursesRequest;
 use App\Catalog\Interfaces\Http\Resource\CourseResource;
-use App\Models\User;
+use App\Catalog\Interfaces\Http\Resource\CourseStructureResource;
+use App\Shared\Interfaces\Http\Controller\IdentifiesTheOwner;
 use App\Shared\Interfaces\Http\Resource\PaginatedResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,10 +36,13 @@ use Illuminate\Http\Response;
  */
 final class CourseController
 {
+    use IdentifiesTheOwner;
+
     public function __construct(
         private readonly CreateCourse $criarCurso,
         private readonly ListCourses $listarCursos,
         private readonly GetCourse $obterCurso,
+        private readonly GetCourseStructure $obterEstrutura,
     ) {}
 
     public function store(CreateCourseRequest $request): JsonResponse
@@ -85,19 +91,24 @@ final class CourseController
     }
 
     /**
-     * O dono da operacao e quem esta autenticado — nunca quem a requisicao diz
-     * ser.
+     * A arvore do curso: ele, seus modulos e as aulas de cada modulo.
      *
-     * A rota exige `auth:sanctum`, entao chegar aqui sem usuario significaria
-     * middleware ausente, e nao requisicao anonima. A afirmacao existe para que
-     * essa hipotese falhe alto em desenvolvimento, em vez de virar um curso sem
-     * dono no banco.
+     * Mesma recusa das demais acoes — curso alheio e curso inexistente respondem
+     * o mesmo `404` — e mesma ausencia de route model binding, pelo mesmo motivo:
+     * carregar o curso antes de saber de quem ele e seria ler recurso alheio para
+     * so entao recusa-lo.
+     *
+     * A resposta **nao** e paginada. A estrutura e uma arvore ordenada, e paginar
+     * a ordem quebraria o que RF-EST-002 exige preservar (plan §10.1) — por isso
+     * ela nao passa por `PaginatedResponse`.
      */
-    private function donoAutenticado(Request $request): string
+    public function structure(Request $request, string $course): JsonResponse
     {
-        $usuario = $request->user();
-        assert($usuario instanceof User);
+        $estrutura = ($this->obterEstrutura)(new GetCourseStructureQuery(
+            courseId: $course,
+            ownerId: $this->donoAutenticado($request),
+        ));
 
-        return (string) $usuario->getKey();
+        return CourseStructureResource::make($estrutura)->response();
     }
 }

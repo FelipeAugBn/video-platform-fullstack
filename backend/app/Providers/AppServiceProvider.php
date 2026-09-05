@@ -4,10 +4,18 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Catalog\Application\Port\CatalogReadModel;
 use App\Catalog\Application\Port\CourseRepository;
+use App\Catalog\Application\Port\LessonRepository;
+use App\Catalog\Application\Port\ModuleRepository;
+use App\Catalog\Infrastructure\Persistence\Eloquent\EloquentCatalogReadModel;
 use App\Catalog\Infrastructure\Persistence\Eloquent\EloquentCourseRepository;
+use App\Catalog\Infrastructure\Persistence\Eloquent\EloquentLessonRepository;
+use App\Catalog\Infrastructure\Persistence\Eloquent\EloquentModuleRepository;
 use App\Shared\Application\Port\Clock;
+use App\Shared\Application\Port\TransactionManager;
 use App\Shared\Infrastructure\Clock\SystemClock;
+use App\Shared\Infrastructure\Transaction\DatabaseTransactionManager;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -27,7 +35,12 @@ final class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(Clock::class, SystemClock::class);
+        $this->app->singleton(TransactionManager::class, DatabaseTransactionManager::class);
+
         $this->app->singleton(CourseRepository::class, EloquentCourseRepository::class);
+        $this->app->singleton(ModuleRepository::class, EloquentModuleRepository::class);
+        $this->app->singleton(LessonRepository::class, EloquentLessonRepository::class);
+        $this->app->singleton(CatalogReadModel::class, EloquentCatalogReadModel::class);
     }
 
     public function boot(): void

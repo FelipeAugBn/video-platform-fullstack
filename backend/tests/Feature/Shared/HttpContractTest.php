@@ -478,6 +478,8 @@ final class HttpContractTest extends TestCase
             [
                 'api/auth/login', 'api/auth/me', 'api/auth/logout',
                 'api/courses', 'api/courses/{course}',
+                'api/courses/{course}/modules', 'api/courses/{course}/structure',
+                'api/modules/{module}/lessons', 'api/lessons/{lesson}',
             ],
             $uris,
             'Sob o prefixo da API existem apenas autenticacao e o catalogo do produtor nesta etapa.',

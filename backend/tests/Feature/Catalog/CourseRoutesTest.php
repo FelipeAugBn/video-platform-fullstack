@@ -89,12 +89,16 @@ final class CourseRoutesTest extends TestCase
         }
     }
 
-    public function test_as_tres_rotas_de_curso_exigem_sessao_e_perfil_de_produtor(): void
+    public function test_as_rotas_de_curso_exigem_sessao_e_perfil_de_produtor(): void
     {
         $doCatalogo = collect(Route::getRoutes()->getRoutes())
             ->filter(fn (RotaRegistrada $rota): bool => str_starts_with((string) $rota->uri(), 'api/courses'));
 
-        $this->assertCount(3, $doCatalogo);
+        // Cinco rotas sob `api/courses`: a colecao com `GET` e `POST`, o detalhe,
+        // a estrutura e a colecao de modulos, que tambem atende os dois metodos.
+        // O numero e escrito de proposito — uma rota nova que apareca sem passar
+        // por uma tarefa faz este teste falhar.
+        $this->assertCount(6, $doCatalogo);
 
         // A verificacao e na declaracao da rota, e nao apenas no comportamento:
         // uma rota que respondesse certo hoje por outro motivo — um middleware

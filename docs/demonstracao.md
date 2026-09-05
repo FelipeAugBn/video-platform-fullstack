@@ -11,13 +11,14 @@ real neste repositório.
 ## O que já existe
 
 O banco completo, os dados de avaliação, a **autenticação** e o **catálogo do
-produtor**: as três contas abaixo entram pela API, a sessão é mantida por cookie,
-cada perfil é reconhecido, e um produtor autenticado já cria, lista e consulta os
-próprios cursos — sem alcançar os de outro produtor.
+produtor inteiro**: as três contas abaixo entram pela API, a sessão é mantida por
+cookie, cada perfil é reconhecido, e um produtor autenticado já cria, lista e
+consulta os próprios cursos, organiza módulos e aulas dentro deles e lê a
+estrutura completa do curso de uma vez — sem alcançar nada de outro produtor.
 
-Ainda **não** existem telas, nem módulos, aulas ou vídeo. O que este documento
-descreve é a primeira fatia vertical completa: regra de negócio, caso de uso,
-persistência e API para um recurso do domínio.
+Ainda **não** existem telas, nem envio de vídeo, publicação ou catálogo do
+consumidor. O que este documento descreve é a árvore do conteúdo funcionando de
+ponta a ponta: regra de negócio, caso de uso, persistência e API.
 
 ## Endpoints disponíveis
 
@@ -30,10 +31,15 @@ persistência e API para um recurso do domínio.
 | `POST /api/courses` | Cria um curso do produtor autenticado |
 | `GET /api/courses` | Lista, paginados, os cursos do produtor autenticado |
 | `GET /api/courses/{course}` | Devolve um curso do próprio produtor |
+| `POST /api/courses/{course}/modules` | Cria um módulo no fim do curso |
+| `GET /api/courses/{course}/modules` | Lista os módulos do curso, na ordem |
+| `POST /api/modules/{module}/lessons` | Cria uma aula no fim do módulo |
+| `GET /api/lessons/{lesson}` | Devolve uma aula, com o estado do vídeo dela |
+| `GET /api/courses/{course}/structure` | Devolve o curso com módulos e aulas, ordenados |
 
 A API responde em `http://localhost:8080`.
 
-As três rotas de curso exigem sessão válida **e** perfil de produtor. Um
+Todas as rotas de catálogo exigem sessão válida **e** perfil de produtor. Um
 consumidor autenticado recebe `403`.
 
 Cinco detalhes do comportamento, úteis para quem for avaliar:
@@ -68,6 +74,34 @@ A listagem devolve 15 itens por página por padrão. `per_page` acima de 50 é
 atendido e limitado a 50; `per_page` zero, negativo ou não numérico é recusado
 com `422`. A ordem é do curso mais recente para o mais antigo.
 
+### Módulos e aulas: o que esperar
+
+**A posição é do servidor, e o formulário nem tem esse campo.** Um módulo novo
+entra no fim do curso, uma aula nova entra no fim do módulo, e a posição é sempre
+a próxima livre: 1, 2, 3, 4. Enviar `position` no corpo não muda nada — nem
+mesmo pedir a posição 1 quando ela já está ocupada. Nenhum item já criado é
+deslocado.
+
+Cada pai tem a sua própria sequência. Dois cursos começam do 1 cada um; dois
+módulos do mesmo curso também.
+
+**A aula nasce rascunho e sem vídeo.** `published_at` e `video_state` vêm nulos, e
+enviá-los no corpo não tem efeito. `video_state` passa a refletir o estado real da
+tentativa de vídeo quando ela existir — publicação e envio chegam nas próximas
+etapas.
+
+**A estrutura é uma leitura só e não é paginada.** `GET /api/courses/{course}/structure`
+devolve o curso, seus módulos e as aulas de cada módulo, todos na ordem de
+posição, incluindo os rascunhos. Paginar uma árvore quebraria a ordem que ela
+existe para preservar. Curso sem módulos devolve `modules: []`; módulo sem aulas,
+`lessons: []`.
+
+**O isolamento vale na árvore inteira.** Criar módulo em curso de outro produtor,
+criar aula em módulo alheio, consultar aula alheia ou pedir a estrutura de um
+curso que não é seu: as quatro respondem o mesmo `404` de recurso inexistente. A
+verificação do dono acontece dentro da consulta ao banco, atravessando aula →
+módulo → curso → proprietário — o conteúdo alheio nunca chega a ser carregado.
+
 ### Percorrendo o fluxo sem interface
 
 Ainda não há tela de login. Para exercitar a jornada agora, qualquer cliente HTTP
@@ -78,9 +112,11 @@ buscar o cookie de proteção, enviar o login com o valor desse cookie no cabeç
 
 Com a sessão aberta, `POST /api/courses` cria um curso — também exigindo o
 cabeçalho `X-XSRF-TOKEN`, por ser uma operação que altera estado — e
-`GET /api/courses` lista o que aquele produtor tem. Para conferir o isolamento,
-basta pedir, autenticado como um produtor, o identificador de um curso do outro:
-a resposta é `404`.
+`GET /api/courses` lista o que aquele produtor tem. Em seguida,
+`POST /api/courses/{course}/modules` e `POST /api/modules/{module}/lessons`
+montam a árvore, e `GET /api/courses/{course}/structure` mostra o resultado
+inteiro. Para conferir o isolamento, basta pedir, autenticado como um produtor, o
+identificador de um curso do outro: a resposta é `404`.
 
 ## Como os dados são preparados
 
@@ -138,7 +174,8 @@ com acesso já concedido ao consumidor.
 
 O curso não tem nenhum módulo e nenhuma aula, e é assim que ele deve permanecer
 até a demonstração começar. É esse vazio que a jornada preenche: criar o módulo,
-criar a aula, enviar o vídeo, publicar e então consumir como o outro perfil.
+criar a aula, enviar o vídeo, publicar e então consumir como o outro perfil. Os
+dois primeiros passos já funcionam pela API.
 
 A jornada parte de um curso já concedido porque não existe operação para
 conceder acesso a um curso recém-criado — concessões são criadas apenas por

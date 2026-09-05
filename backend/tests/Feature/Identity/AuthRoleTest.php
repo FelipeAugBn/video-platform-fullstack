@@ -115,7 +115,8 @@ final class AuthRoleTest extends TestCase
     public function test_as_rotas_de_teste_nao_existem_na_aplicacao(): void
     {
         // O teste registra as proprias rotas; o arquivo de rotas de producao
-        // continua com apenas as de autenticacao e as do catalogo do produtor.
+        // continua com apenas as de autenticacao e as do catalogo do produtor —
+        // curso, modulo, aula e estrutura.
         $rotas = collect(Route::getRoutes()->getRoutes())
             ->map(fn ($rota): string => (string) $rota->uri())
             ->filter(fn (string $uri): bool => str_starts_with($uri, 'api/'))
@@ -129,6 +130,8 @@ final class AuthRoleTest extends TestCase
             [
                 'api/auth/login', 'api/auth/me', 'api/auth/logout',
                 'api/courses', 'api/courses/{course}',
+                'api/courses/{course}/modules', 'api/courses/{course}/structure',
+                'api/modules/{module}/lessons', 'api/lessons/{lesson}',
                 'api/_teste/area-do-produtor', 'api/_teste/area-do-consumidor',
             ],
             $rotas->all(),

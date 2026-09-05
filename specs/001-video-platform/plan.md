@@ -233,6 +233,7 @@ gravados por casos de uso distintos do catálogo.
 | Porta | Área | Adapter |
 | --- | --- | --- |
 | `CourseRepository`, `ModuleRepository`, `LessonRepository` | Catalog | Eloquent |
+| `CatalogReadModel` | Catalog | Eloquent |
 | `VideoAttemptRepository` | Video | Eloquent |
 | `ObjectStorage` | Video | RustFS via SDK S3 |
 | `ProcessingGateway` | Video | Despacho na fila |
@@ -240,10 +241,50 @@ gravados por casos de uso distintos do catálogo.
 | `AttemptLock` | Video | Cache lock atômico sobre `cache_locks` (§8.2) |
 | `AccessGrantRepository` | Identity | Eloquent |
 | `Clock` | Shared | Relógio do sistema; fixo nos testes |
+| `TransactionManager` | Shared | Transação do Laravel sobre a conexão MySQL |
 
 `ObjectStorage` é a porta que sustenta a substituibilidade exigida por RF-PROC-003
 e a troca de storage: ela fala em criar upload, emitir URL de parte, concluir,
 inspecionar e emitir URL de leitura — vocabulário do problema, não da AWS.
+
+`CatalogReadModel` é a exceção que confirma a regra dos repositórios: uma porta
+**somente de leitura**. Ela não tem operação de gravação nem de trava, e nunca
+expõe model Eloquent ou qualquer outro detalhe de persistência: suas operações
+devolvem DTOs de leitura imutáveis, montados para responder duas perguntas que
+atravessam `Course`, `Module`, `Lesson` e o estado da tentativa de vídeo — uma
+aula com o estado do vídeo dela, e a árvore completa do curso.
+
+`CourseStructureView` **reaproveita o agregado imutável `Course`** para os dados
+do curso, em vez de copiá-los campo a campo: o agregado já traz exatamente o que
+a resposta declara, e uma terceira descrição do mesmo curso seria mais uma cópia
+para manter em sincronia. Módulos e aulas, ao contrário, entram como projeções
+próprias da leitura, porque carregam o que nenhum agregado tem — o aninhamento e
+o estado do vídeo.
+
+Existe porque montar essas leituras pelos repositórios de agregado custaria uma
+consulta por módulo para buscar as aulas, e outra por aula para buscar o estado
+do vídeo — o número de consultas cresceria com o tamanho do curso, justamente
+onde a estrutura é mais útil. Pela porta de leitura, a árvore sai em um número
+fixo de consultas.
+
+Ela **não substitui** `CourseRepository`, `ModuleRepository` nem
+`LessonRepository`, e a divisão é a de responsabilidade: quem vai aplicar regra
+ou gravar mudança continua passando pelo repositório do agregado, que devolve o
+objeto de domínio. A porta de leitura serve só a quem vai exibir. É também o que
+mantém a árvore fora do modelo de escrita: `Course`, `Module` e `Lesson`
+continuam sendo raízes separadas (§6.1), e a estrutura é uma representação para
+consulta, não um agregado único.
+
+`TransactionManager` existe porque o limite transacional é decisão de caso de uso
+(§5.1) e várias operações desta solução dependem dele — criar módulo, criar aula,
+concluir envio, publicar, processar callback (§7.4). Sem uma porta, cada caso de
+uso precisaria chamar `DB::transaction` diretamente, e `Application` passaria a
+importar `Illuminate`: a regra de dependência cairia exatamente na camada que
+existe para não conhecer framework. A porta declara uma única operação — executar
+o que recebeu e devolver o resultado — e não menciona conexão, savepoint nem
+nível de isolamento; o adapter de Shared/Infrastructure é que executa
+`DB::transaction`. A troca é uma interface e um adapter pequenos em favor de
+manter `Application` livre de Laravel.
 
 ### 5.4 O que fica em cada lugar
 
@@ -578,6 +619,19 @@ video_attempts 1 ──▶ N webhook_events
 | Concluir envio | Duas transações curtas — validar antes, transicionar e enfileirar o processamento depois — dentro de um lock atômico por tentativa | `CompleteMultipartUpload` e `HeadObject` |
 | Publicar aula | Leitura travada da aula e da tentativa, publicação, atualização do estado do curso | — |
 | Processar callback | Reserva do evento, transição do vídeo e gravação do desfecho | — |
+
+**Quem decide o limite é o caso de uso; quem o executa é o adapter.** A coluna
+"abrange" acima é uma decisão de aplicação, não de persistência: só o caso de uso
+sabe que o cálculo da posição e a inserção precisam valer juntos. Ele a declara
+pela porta `TransactionManager` (§5.3), entregando a operação inteira para ser
+executada como uma unidade, e recebe de volta o resultado dela. O adapter de
+Shared/Infrastructure é o único que chama `DB::transaction`, e é ele que abre,
+confirma e desfaz.
+
+A consequência prática é a que a regra de dependência pede: `Application`
+continua sem importar `Illuminate`, `DB` ou Eloquent. Um caso de uso lido
+isoladamente mostra **o que** pertence à transação sem mostrar **como** o MySQL a
+implementa, e trocar o mecanismo de transação não toca em nenhum deles.
 
 Chamadas ao storage ficam **fora** da transação. Manter uma transação MySQL
 aberta durante uma chamada de rede a um serviço externo prende locks pelo tempo
