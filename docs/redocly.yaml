@@ -1,0 +1,35 @@
+# Regras do lint do contrato.
+#
+# Existe por uma razao concreta: o conjunto padrao valida a **estrutura** do
+# documento, mas nao confere os **exemplos** contra os schemas que eles ilustram.
+# Um exemplo que contradiz o proprio schema e pior do que exemplo nenhum — quem
+# importa o contrato numa ferramenta de requisicoes parte dele, e descobre a
+# divergencia contra a API em execucao. As tres regras ligadas abaixo fecham
+# isso, e ja pegaram um caso real durante a escrita.
+#
+# As tres desligadas sao recomendacoes de estilo do proprio linter que nao se
+# aplicam a esta entrega, cada uma por um motivo declarado. Sao silenciadas aqui,
+# no lugar visivel, em vez de toleradas como ruido permanente na saida: um lint
+# que sempre reclama de algo que ninguem vai corrigir treina quem o le a ignorar
+# o que ele diz.
+
+extends:
+  - recommended
+
+rules:
+  # O que o padrao nao cobre.
+  no-invalid-media-type-examples: error
+  no-invalid-parameter-examples: error
+  no-invalid-schema-examples: error
+
+  # O repositorio e resposta a um desafio tecnico e nao publica termos de uso.
+  info-license: off
+
+  # O unico servidor **e** o ambiente local: a API nao esta publicada em lugar
+  # nenhum, e apontar para um endereco ficticio de producao seria pior.
+  no-server-example.com: off
+
+  # `GET /sanctum/csrf-cookie` nao tem resposta de erro a declarar: ele planta
+  # cookies e responde `204`. Inventar um `4XX` para satisfazer a regra
+  # documentaria um comportamento que a aplicacao nao tem.
+  operation-4xx-response: off

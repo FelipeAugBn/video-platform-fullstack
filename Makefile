@@ -63,7 +63,7 @@ MODULOS := frontend/node_modules/.package-lock.json
 CHAVE := scripts/ensure-app-key.sh
 
 .DEFAULT_GOAL := up
-.PHONY: up dependencias imagens ambiente chave
+.PHONY: up dependencias imagens ambiente chave openapi-lint
 
 # Alvo oficial da entrega. As etapas 1 a 3 chegam pela cadeia de pre-requisitos.
 up: dependencias
@@ -140,3 +140,36 @@ $(MODULOS): frontend/package.json frontend/package-lock.json docker/frontend/Doc
 	  --env HOME=/tmp \
 	  frontend npm ci
 	@touch $@
+
+# Validacao do contrato da API.
+#
+#     make openapi-lint
+#
+# Roda em container descartavel, como todo o resto: nem Node, nem o linter,
+# precisam existir no host. A imagem **nao** entra no Compose — nao e um servico
+# do ambiente, e sim uma ferramenta chamada sob demanda; declara-la la a subiria
+# junto com a aplicacao para nao fazer nada.
+#
+# A referencia da imagem tem tag **e** digest. A tag sozinha e um ponteiro que o
+# registro pode remover ou remapear, e `latest` muda debaixo de quem usa: um
+# contrato que passa hoje e falha amanha sem ninguem ter tocado nele nao e
+# validacao, e ruido. Com o digest, ou a imagem e exatamente esta, ou o comando
+# nao roda.
+#
+# As regras ficam em `docs/redocly.yaml`, versionado junto: o conjunto padrao
+# nao confere exemplos contra os schemas, e e justamente esse tipo de defeito
+# que quebra quem importa o contrato numa ferramenta de requisicoes.
+#
+# A montagem e somente `docs/`, e somente leitura. O linter nao tem por que
+# enxergar o codigo, o `.env` ou o diretorio do Git, e em `:ro` ele nao consegue
+# escrever arquivo de cache nem trocar permissao dentro da arvore.
+#
+# O usuario e o do host pela mesma razao dos demais alvos, e `--rm` nao deixa
+# container parado para tras. O codigo de saida do linter e o do alvo: contrato
+# invalido quebra `make`, e quebra a pipeline junto.
+LINTER_OPENAPI := redocly/cli:1.34.2@sha256:a2e50da1c3807122c9d2e0d2a83e11ddc1c60b676b50d08b02c5dde8506f3eee
+
+openapi-lint:
+	docker run --rm --user $(USUARIO) \
+	  --volume "$(CURDIR)/docs:/spec:ro" \
+	  $(LINTER_OPENAPI) lint --config /spec/redocly.yaml /spec/openapi.yaml

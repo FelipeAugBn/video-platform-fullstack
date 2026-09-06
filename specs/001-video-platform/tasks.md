@@ -1480,7 +1480,7 @@ fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 ## Fase 12 — Contrato publicável
 
-- [ ] **T076** OpenAPI completo e publicável
+- [x] **T076** OpenAPI completo e publicável
   - **Objetivo:** o contrato inteiro documentado, válido e executável por quem
     avalia.
   - **Arquivos previstos:** `docs/openapi.yaml`, `docs/api.md`.

@@ -1,0 +1,2329 @@
+openapi: 3.1.0
+
+info:
+  title: Plataforma de Conteudo em Video — API
+  version: "1.0.0"
+  summary: Catalogo de cursos, envio de video em partes, processamento assincrono e reproducao autorizada.
+  description: |
+    API REST/JSON que sustenta as duas jornadas da plataforma: o **produtor**
+    organiza cursos, modulos e aulas, envia o video e publica; o **consumidor**
+    navega o que lhe foi concedido e obtem os dados de reproducao.
+
+    ## Convencoes
+
+    **Envelope.** Todo recurso e toda colecao saem sob `data`. Listagens
+    paginadas acrescentam `meta` e `links`, e nada alem desses tres membros.
+
+    **Erros.** Toda falha responde `application/problem+json` conforme a
+    RFC 9457, com um `code` funcional estavel — e o `code`, e nao o texto de
+    `detail`, que o cliente deve usar para decidir o que mostrar. Nenhum corpo de
+    erro carrega mensagem de excecao, consulta, caminho de arquivo ou qualquer
+    detalhe interno.
+
+    **Sem prefixo de versao.** Nao existe `/v1`: introduzi-lo antes de haver um
+    segundo consumidor do contrato seria cerimonia sem beneficio. Este documento,
+    versionado junto do codigo, e onde uma mudanca de contrato fica visivel.
+
+    **`405`.** Qualquer endereco existente chamado com um metodo que ele nao
+    aceita responde `405` com corpo de problema e o cabecalho `Allow` listando os
+    metodos aceitos. Isso vale para todas as rotas e nao esta repetido operacao a
+    operacao.
+
+    ## Autenticacao — SPA com cookie de sessao
+
+    Nao ha token no corpo nem no cabecalho `Authorization`. A sessao vive em um
+    cookie `HttpOnly`, inacessivel ao JavaScript, e as operacoes que alteram
+    estado exigem tambem um token de protecao contra requisicao forjada.
+
+    A sequencia que um cliente precisa seguir:
+
+    1. `GET /sanctum/csrf-cookie` — planta os cookies `XSRF-TOKEN` e de sessao;
+    2. **preservar os cookies** entre as chamadas (`cookie jar` no Postman,
+       Insomnia ou `curl -c/-b`);
+    3. enviar o valor do cookie `XSRF-TOKEN`, decodificado de URL, no cabecalho
+       `X-XSRF-TOKEN` de **toda** operacao mutante — `POST` inclusive o login;
+    4. seguir enviando os cookies nas chamadas seguintes.
+
+    **Fora do navegador, o cabecalho `Origin` e obrigatorio.** A sessao so e
+    aplicada a requisicoes reconhecidas como *first-party*, e o reconhecimento
+    compara o `Origin` com os dominios declarados na configuracao do ambiente —
+    `http://localhost:3000` no ambiente local. O navegador o envia sozinho e nao
+    permite sobrescreve-lo; `curl`, Postman e Insomnia nao o enviam por conta
+    propria. Sem ele nao ha sessao, e o login falha em vez de autenticar.
+
+    Por isso ele **nao** aparece como parametro das operacoes: nao e algo que o
+    cliente do navegador escolhe, e declara-lo faria um cliente gerado tentar
+    definir um cabecalho que o proprio navegador controla.
+
+    O login **regenera a sessao**, e com ela o `XSRF-TOKEN`. Quem guardou o token
+    antes de autenticar precisa reler o cookie depois; nao fazer isso produz
+    `419` na primeira operacao apos o login.
+
+    Token ausente ou incorreto responde `419` com o codigo
+    `CSRF_TOKEN_MISMATCH`, **sem executar a operacao**. E um estado proprio, e
+    nao uma falha de autenticacao: o tratamento correto e obter um token novo e
+    repetir a requisicao uma vez.
+
+    ## Perfis
+
+    Cada usuario tem exatamente um perfil. Rotas de gestao exigem `producer`;
+    rotas de consumo exigem `consumer`. Perfil errado responde `403`.
+
+    Propriedade e concessao sao decididas depois, no caso de uso, e falham com
+    `404` — nunca `403`. A diferenca e deliberada: `403` admitiria que o recurso
+    existe, e comparar as duas respostas transformaria a API num verificador de
+    identificadores alheios. **Recurso inexistente, recurso de outro produtor e
+    curso sem concessao respondem exatamente a mesma coisa.**
+
+    ## Os bytes do video nao passam por esta API
+
+    Nenhuma rota recebe ou devolve o conteudo do arquivo. O envio abre uma
+    operacao multipart, o cliente pede uma URL temporaria por parte e envia cada
+    uma **direto ao armazenamento**; a conclusao apenas informa os comprovantes.
+    A reproducao devolve uma URL assinada de curta duracao, e nao o arquivo.
+
+  contact:
+    name: Repositorio do projeto
+    url: https://github.com/
+
+servers:
+  - url: http://localhost:8080
+    description: Ambiente local levantado pelo Compose (`make up`)
+
+tags:
+  - name: Autenticacao
+    description: Sessao, perfil e protecao CSRF.
+  - name: Catalogo do produtor
+    description: Cursos, modulos, aulas e a arvore do curso — sempre restritos ao proprietario.
+  - name: Video
+    description: Abertura do envio, URLs de parte, conclusao e estado do processamento.
+  - name: Catalogo do consumidor
+    description: Cursos concedidos, navegacao do conteudo publicado e reproducao.
+  - name: Webhook
+    description: Callback de processamento, autenticado por assinatura HMAC.
+
+security:
+  - sessaoSpa: []
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # Autenticacao
+  # ---------------------------------------------------------------------------
+
+  /sanctum/csrf-cookie:
+    get:
+      tags: [Autenticacao]
+      operationId: obterCookieCsrf
+      summary: Planta o cookie de protecao CSRF
+      description: |
+        Primeira chamada de qualquer cliente. Devolve `204` sem corpo e planta
+        dois cookies: `XSRF-TOKEN`, legivel pelo cliente, e o cookie de sessao.
+
+        O valor de `XSRF-TOKEN` chega **codificado como URL** e precisa ser
+        decodificado antes de ir no cabecalho `X-XSRF-TOKEN`.
+
+        Esta rota fica fora do prefixo `/api` — ela e registrada pelo proprio
+        Sanctum e ja chega com o middleware de sessao.
+      security: []
+      responses:
+        "204":
+          description: Cookies plantados. Sem corpo.
+          headers:
+            Set-Cookie:
+              description: '`XSRF-TOKEN` e o cookie de sessao.'
+              schema:
+                type: string
+                examples: ["XSRF-TOKEN=exemplo-de-token; Path=/; SameSite=Lax"]
+
+  /api/auth/login:
+    post:
+      tags: [Autenticacao]
+      operationId: autenticar
+      summary: Autentica e abre a sessao
+      description: |
+        Credencial invalida e recusada como **erro de validacao** (`422`), com a
+        mensagem associada ao campo `email`. A resposta e identica para usuario
+        inexistente e para senha incorreta: distinguir os dois transformaria a
+        tela de autenticacao num verificador de cadastro.
+
+        A operacao regenera a sessao — e, com ela, o `XSRF-TOKEN`. Releia o
+        cookie antes da proxima operacao mutante.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/TokenCsrf"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Credenciais"
+            examples:
+              produtor:
+                summary: Produtor de demonstracao
+                value:
+                  email: producer@video-platform.test
+                  password: VideoDemo2026!
+      responses:
+        "200":
+          description: Sessao aberta.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsuarioEnvelope"
+              examples:
+                produtor:
+                  value:
+                    data:
+                      id: 01a06e16-10ac-721b-9e80-fb8e67bb563f
+                      name: Produtora de Demonstracao
+                      email: producer@video-platform.test
+                      role: producer
+        "419":
+          $ref: "#/components/responses/TokenCsrfInvalido"
+        "422":
+          description: Campos ausentes ou credencial recusada.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemaDeValidacao"
+              examples:
+                credencialRecusada:
+                  value:
+                    type: https://api.example.test/problems/validation-failed
+                    title: Dados invalidos
+                    status: 422
+                    detail: Revise os campos informados.
+                    code: VALIDATION_FAILED
+                    errors:
+                      email: ["As credenciais informadas nao conferem."]
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/auth/me:
+    get:
+      tags: [Autenticacao]
+      operationId: usuarioAutenticado
+      summary: Devolve o usuario da sessao corrente
+      description: Leitura; nao exige token CSRF.
+      responses:
+        "200":
+          description: O usuario autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsuarioEnvelope"
+              examples:
+                consumidor:
+                  value:
+                    data:
+                      id: 01a06e16-10ae-73fc-a2d5-3e29c3e6a61f
+                      name: Consumidor de Demonstracao
+                      email: consumer@video-platform.test
+                      role: consumer
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/auth/logout:
+    post:
+      tags: [Autenticacao]
+      operationId: encerrarSessao
+      summary: Encerra a sessao
+      description: |
+        Invalida a sessao e rotaciona o identificador dela. Responde `204` sem
+        corpo.
+      parameters:
+        - $ref: "#/components/parameters/TokenCsrf"
+      responses:
+        "204":
+          description: Sessao encerrada. Sem corpo.
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "419":
+          $ref: "#/components/responses/TokenCsrfInvalido"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  # ---------------------------------------------------------------------------
+  # Catalogo do produtor
+  # ---------------------------------------------------------------------------
+
+  /api/courses:
+    get:
+      tags: [Catalogo do produtor]
+      operationId: listarCursos
+      summary: Lista os cursos do produtor autenticado
+      description: |
+        Paginada. O recorte por proprietario acontece **na consulta**, entao
+        `meta.total` e `meta.last_page` contam somente os cursos proprios.
+
+        Ordem: criacao decrescente, com o identificador como criterio de
+        desempate para tornar a sequencia estavel entre paginas.
+      parameters:
+        - $ref: "#/components/parameters/Pagina"
+        - $ref: "#/components/parameters/PorPagina"
+      responses:
+        "200":
+          description: Pagina de cursos proprios.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CursosPaginados"
+              examples:
+                primeiraPagina:
+                  value:
+                    data:
+                      - id: 01a06e16-10ae-73fc-a2d5-3e29c4f41112
+                        title: Fundamentos de Video
+                        description: Curso de demonstracao.
+                        owner_id: 01a06e16-10ac-721b-9e80-fb8e67bb563f
+                        state: available
+                        created_at: "2026-09-05T13:45:12+00:00"
+                    meta:
+                      current_page: 1
+                      per_page: 15
+                      total: 1
+                      last_page: 1
+                    links:
+                      first: "http://localhost:8080/api/courses?per_page=15&page=1"
+                      prev: null
+                      next: null
+                      last: "http://localhost:8080/api/courses?per_page=15&page=1"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "422":
+          $ref: "#/components/responses/ValidacaoFalhou"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+    post:
+      tags: [Catalogo do produtor]
+      operationId: criarCurso
+      summary: Cria um curso
+      description: |
+        O proprietario vem **da sessao**. Um `owner_id` enviado no corpo e
+        ignorado — o campo nao existe na validacao.
+
+        O curso nasce em `draft` e passa a `available` sozinho na primeira
+        publicacao de aula.
+      parameters:
+        - $ref: "#/components/parameters/TokenCsrf"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NovoCurso"
+            examples:
+              curso:
+                value:
+                  title: Fundamentos de Video
+                  description: Curso de demonstracao.
+      responses:
+        "201":
+          description: Curso criado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CursoEnvelope"
+              examples:
+                criado:
+                  value:
+                    data:
+                      id: 01a06e16-10ae-73fc-a2d5-3e29c4f41112
+                      title: Fundamentos de Video
+                      description: Curso de demonstracao.
+                      owner_id: 01a06e16-10ac-721b-9e80-fb8e67bb563f
+                      state: draft
+                      created_at: "2026-09-05T13:45:12+00:00"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "419":
+          $ref: "#/components/responses/TokenCsrfInvalido"
+        "422":
+          $ref: "#/components/responses/ValidacaoFalhou"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/courses/{course}:
+    get:
+      tags: [Catalogo do produtor]
+      operationId: obterCurso
+      summary: Consulta um curso proprio
+      parameters:
+        - $ref: "#/components/parameters/CursoId"
+      responses:
+        "200":
+          description: O curso.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CursoEnvelope"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/courses/{course}/structure:
+    get:
+      tags: [Catalogo do produtor]
+      operationId: obterEstruturaDoCurso
+      summary: Arvore do curso, como o produtor a ve
+      description: |
+        Curso, modulos e aulas aninhados e ordenados por `position`.
+
+        **Inclui rascunhos e o estado do video de cada aula** — a jornada do
+        produtor exige acompanhar o que ainda nao foi publicado e o que ainda
+        esta processando. A visao equivalente do consumidor
+        (`GET /api/catalog/courses/{course}`) nao traz nenhum dos dois.
+
+        Nao e paginada: a arvore e uma ordem, e paginar a ordem a quebraria.
+      parameters:
+        - $ref: "#/components/parameters/CursoId"
+      responses:
+        "200":
+          description: A arvore completa.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EstruturaEnvelope"
+              examples:
+                arvore:
+                  value:
+                    data:
+                      id: 01a06e16-10ae-73fc-a2d5-3e29c4f41112
+                      title: Fundamentos de Video
+                      description: Curso de demonstracao.
+                      owner_id: 01a06e16-10ac-721b-9e80-fb8e67bb563f
+                      state: available
+                      created_at: "2026-09-05T13:45:12+00:00"
+                      modules:
+                        - id: 01a06e16-10ae-73fc-a2d5-3e29c7dce499
+                          course_id: 01a06e16-10ae-73fc-a2d5-3e29c4f41112
+                          title: Introducao
+                          position: 1
+                          lessons:
+                            - id: 01a06e16-10ae-73fc-a2d5-3e29c822bc32
+                              module_id: 01a06e16-10ae-73fc-a2d5-3e29c7dce499
+                              title: Primeiros passos
+                              position: 1
+                              published_at: "2026-09-06T10:00:00+00:00"
+                              video_state: ready
+                            - id: 01a06e16-10ae-73fc-a2d5-3e29c9330001
+                              module_id: 01a06e16-10ae-73fc-a2d5-3e29c7dce499
+                              title: Rascunho ainda sem video
+                              position: 2
+                              published_at: null
+                              video_state: null
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/courses/{course}/modules:
+    get:
+      tags: [Catalogo do produtor]
+      operationId: listarModulos
+      summary: Lista os modulos do curso, em ordem
+      description: Colecao **nao** paginada — sai sob `data`, sem `meta` nem `links`.
+      parameters:
+        - $ref: "#/components/parameters/CursoId"
+      responses:
+        "200":
+          description: Modulos ordenados por `position`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModulosEnvelope"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+    post:
+      tags: [Catalogo do produtor]
+      operationId: criarModulo
+      summary: Cria um modulo no curso
+      description: |
+        A posicao **nao** e recebida do cliente: ela e a proxima livre dentro do
+        curso, calculada sob trava.
+      parameters:
+        - $ref: "#/components/parameters/CursoId"
+        - $ref: "#/components/parameters/TokenCsrf"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NovoModulo"
+            examples:
+              modulo:
+                value:
+                  title: Introducao
+      responses:
+        "201":
+          description: Modulo criado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuloEnvelope"
+              examples:
+                criado:
+                  value:
+                    data:
+                      id: 01a06e16-10ae-73fc-a2d5-3e29c7dce499
+                      course_id: 01a06e16-10ae-73fc-a2d5-3e29c4f41112
+                      title: Introducao
+                      position: 1
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "419":
+          $ref: "#/components/responses/TokenCsrfInvalido"
+        "422":
+          $ref: "#/components/responses/ValidacaoFalhou"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/modules/{module}/lessons:
+    post:
+      tags: [Catalogo do produtor]
+      operationId: criarAula
+      summary: Cria uma aula no modulo
+      description: |
+        A aula nasce **em rascunho e sem video**: `published_at` e `video_state`
+        saem nulos, e nao ha parametro capaz de mudar isso na criacao.
+      parameters:
+        - $ref: "#/components/parameters/ModuloId"
+        - $ref: "#/components/parameters/TokenCsrf"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NovaAula"
+            examples:
+              aula:
+                value:
+                  title: Primeiros passos
+      responses:
+        "201":
+          description: Aula criada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AulaEnvelope"
+              examples:
+                criada:
+                  value:
+                    data:
+                      id: 01a06e16-10ae-73fc-a2d5-3e29c822bc32
+                      module_id: 01a06e16-10ae-73fc-a2d5-3e29c7dce499
+                      title: Primeiros passos
+                      position: 1
+                      published_at: null
+                      video_state: null
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "419":
+          $ref: "#/components/responses/TokenCsrfInvalido"
+        "422":
+          $ref: "#/components/responses/ValidacaoFalhou"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/lessons/{lesson}:
+    get:
+      tags: [Catalogo do produtor]
+      operationId: obterAula
+      summary: Consulta uma aula propria
+      description: |
+        `video_state` vem da tentativa atual, e nao de uma copia guardada na
+        aula. Nulo significa que nenhum envio foi aberto ainda.
+      parameters:
+        - $ref: "#/components/parameters/AulaId"
+      responses:
+        "200":
+          description: A aula.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AulaEnvelope"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/lessons/{lesson}/publish:
+    post:
+      tags: [Catalogo do produtor]
+      operationId: publicarAula
+      summary: Publica a aula
+      description: |
+        Exige video em `ready` **com referencia de reproducao registrada**.
+        Falhando a condicao, a resposta e `409` com o codigo que diz qual das
+        tres nao foi satisfeita, para a interface exibir conflito de regra em vez
+        de erro generico.
+
+        Republicar uma aula ja publicada responde `200` sem efeito novo, e sem
+        reavaliar o video. A primeira publicacao do curso o torna `available` na
+        mesma transacao.
+      parameters:
+        - $ref: "#/components/parameters/AulaId"
+        - $ref: "#/components/parameters/TokenCsrf"
+      responses:
+        "200":
+          description: Aula publicada — ou ja publicada, sem efeito novo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AulaEnvelope"
+              examples:
+                publicada:
+                  value:
+                    data:
+                      id: 01a06e16-10ae-73fc-a2d5-3e29c822bc32
+                      module_id: 01a06e16-10ae-73fc-a2d5-3e29c7dce499
+                      title: Primeiros passos
+                      position: 1
+                      published_at: "2026-09-06T10:00:00+00:00"
+                      video_state: ready
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "409":
+          description: |
+            A condicao de publicacao nao foi satisfeita. O `code` distingue os
+            tres motivos, e `video_state` acompanha o problema como membro de
+            extensao para a interface nao precisar de uma segunda requisicao.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemaDePublicacao"
+              examples:
+                semVideo:
+                  summary: A aula nunca teve um envio
+                  value:
+                    type: https://api.example.test/problems/lesson-without-video
+                    title: Aula sem video
+                    status: 409
+                    detail: Esta aula ainda nao tem video. Envie um video antes de publicar.
+                    code: LESSON_WITHOUT_VIDEO
+                videoNaoPronto:
+                  summary: O video ainda esta processando
+                  value:
+                    type: https://api.example.test/problems/lesson-video-not-ready
+                    title: Video ainda nao esta pronto
+                    status: 409
+                    detail: O video desta aula ainda nao esta pronto para reproducao.
+                    code: LESSON_VIDEO_NOT_READY
+                    video_state: processing
+        "419":
+          $ref: "#/components/responses/TokenCsrfInvalido"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  # ---------------------------------------------------------------------------
+  # Video — envio, conclusao e estado
+  # ---------------------------------------------------------------------------
+
+  /api/lessons/{lesson}/video/uploads:
+    post:
+      tags: [Video]
+      operationId: abrirEnvioDeVideo
+      summary: Abre um envio de video em partes
+      description: |
+        Valida o que o cliente declara contra os limites do backend — tipo
+        `video/mp4`, tamanho de 1 byte a 10 GiB — e abre a operacao multipart no
+        armazenamento.
+
+        A resposta e o **plano de envio**: quantas partes, de que tamanho, e o
+        identificador da tentativa. Nenhum byte e enviado nesta chamada.
+
+        **A chave do objeto e escolhida pelo servidor**, derivada do
+        identificador da tentativa — nunca do nome do arquivo. O `filename`
+        declarado e guardado apenas como informacao.
+
+        Um novo envio so e aceito se a tentativa atual da aula tiver terminado em
+        `failed`; qualquer outro estado responde `409` com `VIDEO_ATTEMPT_ACTIVE`
+        e o estado que impede como membro de extensao.
+      parameters:
+        - $ref: "#/components/parameters/AulaId"
+        - $ref: "#/components/parameters/TokenCsrf"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AberturaDeEnvio"
+            examples:
+              arquivoDeUmGigabyte:
+                value:
+                  filename: aula-01.mp4
+                  content_type: video/mp4
+                  size: 1073741824
+      responses:
+        "201":
+          description: Envio aberto. O plano diz em quantas partes transferir.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanoEnvelope"
+              examples:
+                plano:
+                  value:
+                    data:
+                      attempt_id: 01a06e16-10ae-73fc-a2d5-3e29ca110001
+                      storage_key: videos/01a06e16-10ae-73fc-a2d5-3e29ca110001/original.mp4
+                      upload_id: exemplo-de-identificador-multipart
+                      part_size: 67108864
+                      part_count: 16
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "409":
+          description: A aula ja tem uma tentativa que nao terminou em falha.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemaDeEnvio"
+              examples:
+                tentativaAtiva:
+                  value:
+                    type: https://api.example.test/problems/video-attempt-active
+                    title: Aula com tentativa de video ativa
+                    status: 409
+                    detail: >-
+                      Esta aula ja tem uma tentativa de video em andamento ou concluida.
+                      Um novo envio so e aceito depois que a tentativa atual terminar em falha.
+                    code: VIDEO_ATTEMPT_ACTIVE
+                    video_state: processing
+        "419":
+          $ref: "#/components/responses/TokenCsrfInvalido"
+        "422":
+          description: Tipo nao aceito, tamanho fora dos limites ou campo ausente.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemaDeValidacao"
+              examples:
+                tipoRecusado:
+                  value:
+                    type: https://api.example.test/problems/validation-failed
+                    title: Dados invalidos
+                    status: 422
+                    detail: Revise os campos informados.
+                    code: VALIDATION_FAILED
+                    errors:
+                      content_type: ["O campo tipo de conteudo e invalido."]
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/video-uploads/{attempt}/parts/{part}/url:
+    post:
+      tags: [Video]
+      operationId: emitirUrlDeParte
+      summary: Emite a URL temporaria de uma parte
+      description: |
+        Devolve a URL assinada para o **navegador** enviar aquela parte direto ao
+        armazenamento, por `PUT`, com os bytes correspondentes. Ela vale 15
+        minutos e pode ser renovada chamando esta rota de novo — renovar nao
+        altera nada no dominio.
+
+        O **primeiro** pedido move a tentativa de `pending` para `uploading`. Os
+        seguintes nao mudam estado.
+
+        Numero de parte fora do plano do arquivo responde `422`; tentativa que ja
+        encerrou o envio responde `409` com `VIDEO_UPLOAD_NOT_ACTIVE`.
+
+        Guarde o `ETag` que o armazenamento devolver em cada `PUT`: ele e
+        obrigatorio na conclusao.
+      parameters:
+        - $ref: "#/components/parameters/TentativaId"
+        - $ref: "#/components/parameters/NumeroDaParte"
+        - $ref: "#/components/parameters/TokenCsrf"
+      responses:
+        "200":
+          description: URL temporaria da parte.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UrlDeParteEnvelope"
+              examples:
+                parte:
+                  value:
+                    data:
+                      url: https://storage.exemplo.test/videos/exemplo/original.mp4?partNumber=1&uploadId=exemplo&assinatura=REDIGIDO
+                      expires_at: "2026-09-06T12:15:00+00:00"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "409":
+          description: O envio ja foi encerrado e nao aceita mais partes.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problema"
+              examples:
+                envioEncerrado:
+                  value:
+                    type: https://api.example.test/problems/video-upload-not-active
+                    title: Envio de video encerrado
+                    status: 409
+                    detail: Este envio ja foi encerrado e nao aceita mais operacoes.
+                    code: VIDEO_UPLOAD_NOT_ACTIVE
+        "419":
+          $ref: "#/components/responses/TokenCsrfInvalido"
+        "422":
+          $ref: "#/components/responses/ValidacaoFalhou"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/video-uploads/{attempt}/complete:
+    post:
+      tags: [Video]
+      operationId: concluirEnvio
+      summary: Conclui o envio e enfileira o processamento
+      description: |
+        Recebe os comprovantes de todas as partes — `part_number` e `etag`,
+        **repassado exatamente como o armazenamento o devolveu, aspas
+        inclusive**. Remover as aspas quebra a conclusao.
+
+        O backend manda o armazenamento reunir as partes e depois **observa o
+        objeto** de forma independente: existencia, tamanho, tipo e os metadados
+        que ele mesmo gravou na abertura. Nada disso vem do relato do cliente.
+
+        Quatro desfechos, e o que os separa e o **resultado da operacao**, nunca
+        o estado em que a tentativa ficou:
+
+        | Situacao | Resposta |
+        | --- | --- |
+        | Conclusao nova e valida, com o processamento enfileirado no mesmo commit | `202` |
+        | Repeticao de uma conclusao ja aceita | `200`, sem enfileirar de novo |
+        | Objeto confirmadamente ausente ou incompativel, e a repeticao dessa recusa | `409` |
+        | Conclusao pedida sobre tentativa que nao comecou a transferir | `409` |
+        | Sem evidencia sobre o objeto — indisponibilidade, credencial, permissao | `503` |
+
+        A recusa e **gravada antes** de virar `409`: a tentativa fica em `failed`,
+        que e o unico estado a partir do qual um novo envio e aceito.
+      parameters:
+        - $ref: "#/components/parameters/TentativaId"
+        - $ref: "#/components/parameters/TokenCsrf"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConclusaoDeEnvio"
+            examples:
+              duasPartes:
+                value:
+                  parts:
+                    - part_number: 1
+                      etag: '"exemplo-de-comprovante-da-parte-1"'
+                    - part_number: 2
+                      etag: '"exemplo-de-comprovante-da-parte-2"'
+      responses:
+        "202":
+          description: Conclusao aceita **agora**; processamento enfileirado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TentativaEnvelope"
+              examples:
+                aceita:
+                  value:
+                    data:
+                      id: 01a06e16-10ae-73fc-a2d5-3e29ca110001
+                      lesson_id: 01a06e16-10ae-73fc-a2d5-3e29c822bc32
+                      state: uploaded
+                      filename: aula-01.mp4
+                      failure_code: null
+                      failure_message: null
+        "200":
+          description: |
+            Conclusao **ja** aceita numa chamada anterior. Nenhum processamento
+            novo foi enfileirado. O estado pode ser `uploaded`, `processing` ou
+            `ready`, conforme o quanto ja avancou.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TentativaEnvelope"
+              examples:
+                repetida:
+                  value:
+                    data:
+                      id: 01a06e16-10ae-73fc-a2d5-3e29ca110001
+                      lesson_id: 01a06e16-10ae-73fc-a2d5-3e29c822bc32
+                      state: processing
+                      filename: aula-01.mp4
+                      failure_code: null
+                      failure_message: null
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "409":
+          description: |
+            Conclusao recusada. `VIDEO_OBJECT_MISSING` e `VIDEO_OBJECT_MISMATCH`
+            deixam a tentativa em `failed` e liberam um novo envio;
+            `VIDEO_UPLOAD_NOT_ACTIVE` sobre uma tentativa em `pending` nao toca no
+            armazenamento.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problema"
+              examples:
+                objetoAusente:
+                  value:
+                    type: https://api.example.test/problems/video-object-missing
+                    title: Arquivo nao encontrado
+                    status: 409
+                    detail: O arquivo enviado nao foi encontrado no armazenamento. Envie o video novamente.
+                    code: VIDEO_OBJECT_MISSING
+                naoComecou:
+                  value:
+                    type: https://api.example.test/problems/video-upload-not-active
+                    title: Envio de video encerrado
+                    status: 409
+                    detail: Este envio ja foi encerrado e nao aceita mais operacoes.
+                    code: VIDEO_UPLOAD_NOT_ACTIVE
+        "419":
+          $ref: "#/components/responses/TokenCsrfInvalido"
+        "422":
+          $ref: "#/components/responses/ValidacaoFalhou"
+        "503":
+          description: |
+            Sem evidencia sobre o objeto. A tentativa **permanece** em
+            `uploading` e a conclusao pode ser repetida.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problema"
+              examples:
+                semEvidencia:
+                  value:
+                    type: https://api.example.test/problems/service-unavailable
+                    title: Servico temporariamente indisponivel
+                    status: 503
+                    detail: Tente novamente em alguns instantes.
+                    code: SERVICE_UNAVAILABLE
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/lessons/{lesson}/video:
+    get:
+      tags: [Video]
+      operationId: obterVideoDaAula
+      summary: Estado da tentativa de video atual
+      description: |
+        E a rota que a interface consulta em intervalos enquanto o video esta em
+        `uploaded` ou `processing`.
+
+        **Aula sem video responde `200` com `data: null`**, e nao `404`: "ainda
+        nao enviei nada" e o estado inicial de toda aula recem-criada.
+
+        `failure_code` e `failure_message` sao preenchidos quando o estado e
+        `failed`, com o mesmo texto publico que a recusa devolveu.
+      parameters:
+        - $ref: "#/components/parameters/AulaId"
+      responses:
+        "200":
+          description: A tentativa atual, ou `null` se a aula ainda nao tem video.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TentativaOuNuloEnvelope"
+              examples:
+                semVideo:
+                  summary: Aula recem-criada
+                  value:
+                    data: null
+                processando:
+                  value:
+                    data:
+                      id: 01a06e16-10ae-73fc-a2d5-3e29ca110001
+                      lesson_id: 01a06e16-10ae-73fc-a2d5-3e29c822bc32
+                      state: processing
+                      filename: aula-01.mp4
+                      failure_code: null
+                      failure_message: null
+                comFalha:
+                  value:
+                    data:
+                      id: 01936f1a-7c00-7a3e-9b7d-2f5c8e4a1d60
+                      lesson_id: 01a06e16-10ae-73fc-a2d5-3e29c822bc32
+                      state: failed
+                      filename: aula-com-falha.mp4
+                      failure_code: VIDEO_PROCESSING_FAILED
+                      failure_message: Nao foi possivel processar o video. Envie o arquivo novamente.
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  # ---------------------------------------------------------------------------
+  # Catalogo do consumidor
+  # ---------------------------------------------------------------------------
+
+  /api/catalog/courses:
+    get:
+      tags: [Catalogo do consumidor]
+      operationId: listarCursosConcedidos
+      summary: Lista os cursos concedidos ao consumidor
+      description: |
+        Duas condicoes, as duas **dentro da consulta**: o curso precisa ter
+        concessao para o consumidor autenticado **e** estar em `available`.
+
+        Por isso `meta.total` conta apenas o conjunto autorizado — filtrar depois
+        de carregar faria a contagem revelar quantos cursos existem fora da
+        concessao.
+
+        Um curso concedido ainda em `draft` nao aparece aqui: nao ha nada
+        publicado a consumir. Ele continua acessivel pelo endereco direto.
+
+        Consumidor sem nenhuma concessao recebe `200` com lista vazia — nao ter
+        acesso a nada e um estado legitimo, nao um erro.
+      parameters:
+        - $ref: "#/components/parameters/Pagina"
+        - $ref: "#/components/parameters/PorPagina"
+      responses:
+        "200":
+          description: Pagina de cursos concedidos e disponiveis.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CursosPaginados"
+              examples:
+                vazia:
+                  summary: Consumidor sem concessao
+                  value:
+                    data: []
+                    meta:
+                      current_page: 1
+                      per_page: 15
+                      total: 0
+                      last_page: 1
+                    links:
+                      first: "http://localhost:8080/api/catalog/courses?per_page=15&page=1"
+                      prev: null
+                      next: null
+                      last: "http://localhost:8080/api/catalog/courses?per_page=15&page=1"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "422":
+          $ref: "#/components/responses/ValidacaoFalhou"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/catalog/courses/{course}:
+    get:
+      tags: [Catalogo do consumidor]
+      operationId: obterEstruturaConcedida
+      summary: Arvore do curso concedido, so com aulas publicadas
+      description: |
+        A mesma arvore ordenada da visao do produtor, **sem rascunhos e sem
+        estado de video**: a aula do consumidor tem cinco campos, e `video_state`
+        nao e um deles.
+
+        Modulo cujas aulas estejam todas em rascunho aparece com `lessons: []` —
+        o que o consumidor deixa de ver e o conteudo nao publicado, nao a
+        organizacao do curso.
+
+        Curso sem concessao e curso inexistente respondem o **mesmo** `404`, com
+        o mesmo corpo.
+      parameters:
+        - $ref: "#/components/parameters/CursoId"
+      responses:
+        "200":
+          description: A arvore publicada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EstruturaDoConsumidorEnvelope"
+              examples:
+                arvore:
+                  value:
+                    data:
+                      id: 01a06e16-10ae-73fc-a2d5-3e29c4f41112
+                      title: Fundamentos de Video
+                      description: Curso de demonstracao.
+                      owner_id: 01a06e16-10ac-721b-9e80-fb8e67bb563f
+                      state: available
+                      created_at: "2026-09-05T13:45:12+00:00"
+                      modules:
+                        - id: 01a06e16-10ae-73fc-a2d5-3e29c7dce499
+                          course_id: 01a06e16-10ae-73fc-a2d5-3e29c4f41112
+                          title: Introducao
+                          position: 1
+                          lessons:
+                            - id: 01a06e16-10ae-73fc-a2d5-3e29c822bc32
+                              module_id: 01a06e16-10ae-73fc-a2d5-3e29c7dce499
+                              title: Primeiros passos
+                              position: 1
+                              published_at: "2026-09-06T10:00:00+00:00"
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/lessons/{lesson}/playback:
+    get:
+      tags: [Catalogo do consumidor]
+      operationId: obterReproducao
+      summary: Dados de reproducao da aula
+      description: |
+        Quatro verificacoes, nesta ordem: consumidor autenticado, concessao do
+        curso, aula publicada, video em `ready` com referencia registrada.
+        **A URL so e assinada depois das quatro** — nenhum caminho negativo chega
+        ao armazenamento.
+
+        O retorno sao **dados de reproducao, nunca o arquivo**: uma URL `GET`
+        pre-assinada valida por **cinco minutos**, o instante exato em que ela
+        expira e o tipo do conteudo. Os bytes vao do armazenamento direto ao
+        player.
+
+        A negativa por autorizacao e `404` e a por disponibilidade e `409` — a
+        interface precisa separar "nao e para voce" de "ainda nao esta pronto".
+
+        **Limitacao assumida:** a URL funciona ate expirar e pode ser copiada.
+        Cinco minutos reduzem, nao eliminam, a redistribuicao.
+      parameters:
+        - $ref: "#/components/parameters/AulaId"
+      responses:
+        "200":
+          description: Dados de reproducao.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReproducaoEnvelope"
+              examples:
+                reproducao:
+                  value:
+                    data:
+                      playback_url: https://storage.exemplo.test/videos/exemplo/original.mp4?assinatura=REDIGIDO
+                      expires_at: "2026-09-06T12:05:00+00:00"
+                      content_type: video/mp4
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "409":
+          description: |
+            A aula esta dentro de um curso concedido, mas nao ha o que
+            reproduzir. `LESSON_NOT_PUBLISHED` cobre a aula em rascunho;
+            `LESSON_VIDEO_NOT_READY` cobre aula publicada sem tentativa atual,
+            com tentativa fora de `ready`, ou pronta sem referencia registrada.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problema"
+              examples:
+                naoPublicada:
+                  value:
+                    type: https://api.example.test/problems/lesson-not-published
+                    title: Aula nao publicada
+                    status: 409
+                    detail: Esta aula ainda nao foi publicada.
+                    code: LESSON_NOT_PUBLISHED
+                videoNaoPronto:
+                  value:
+                    type: https://api.example.test/problems/lesson-video-not-ready
+                    title: Video ainda nao esta pronto
+                    status: 409
+                    detail: O video desta aula ainda nao esta pronto para reproducao.
+                    code: LESSON_VIDEO_NOT_READY
+        "503":
+          description: |
+            A autorizacao passou, mas **a assinatura da URL falhou** —
+            credencial, configuracao ou indisponibilidade do armazenamento.
+
+            Nada da falha original atravessa: nem a excecao, nem o provedor, nem
+            a chave do objeto. Quem chamou recebe a mesma indisponibilidade
+            temporaria de qualquer outro erro de infraestrutura, e pode repetir a
+            requisicao.
+
+            **Sem `Retry-After`.** O cabecalho e emitido pelo callback de
+            processamento, que tem politica de reentrega declarada; aqui quem
+            repete e uma pessoa diante de um player, e nao um servico.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problema"
+              examples:
+                indisponivel:
+                  value:
+                    type: https://api.example.test/problems/service-unavailable
+                    title: Servico temporariamente indisponivel
+                    status: 503
+                    detail: Tente novamente em alguns instantes.
+                    code: SERVICE_UNAVAILABLE
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  # ---------------------------------------------------------------------------
+  # Webhook de processamento
+  # ---------------------------------------------------------------------------
+
+  /api/webhooks/video-processing:
+    post:
+      tags: [Webhook]
+      operationId: receberCallbackDeProcessamento
+      summary: Recebe o desfecho do processamento do video
+      description: |
+        Rota chamada por um **servico**, e nao por um navegador: nao ha sessao,
+        nao ha perfil e **nao ha token CSRF** — a dispensa e declarada
+        explicitamente na inicializacao da aplicacao, com o endereco escrito.
+
+        ## Autenticacao por assinatura
+
+        Duas cabecalhos obrigatorios:
+
+        | Cabecalho | Conteudo |
+        | --- | --- |
+        | `X-Webhook-Timestamp` | segundos desde a época, somente digitos |
+        | `X-Webhook-Signature` | `v1=` seguido do HMAC em hexadecimal minusculo |
+
+        A assinatura e um **HMAC-SHA256** sobre a cadeia
+        `timestamp + "." + corpo bruto`, com o segredo compartilhado, comparada
+        em tempo constante. O corpo assinado e o **texto exato** transmitido:
+        reserializar o JSON antes de assinar invalida a assinatura.
+
+        O timestamp precisa cair dentro de uma janela de **cinco minutos** em
+        relacao ao relogio do servidor, conferida nos dois sentidos, o que limita
+        o replay de uma assinatura capturada.
+
+        Assinatura ausente, malformada, incorreta ou fora da janela responde
+        `401` — sempre a mesma resposta, sem dizer qual das quatro ocorreu.
+
+        ## Idempotencia
+
+        `event_id` e a unica chave. O primeiro desfecho definitivo vence, e
+        qualquer reentrega dele e reconhecida **sem produzir efeito adicional** e
+        sem que o corpo seja reavaliado.
+
+        ## Como responder
+
+        `200` significa aplicado ou ja aplicado — nao reenvie. `409` e rejeicao
+        **permanente**: o evento nunca sera aplicado, e insistir nao muda isso.
+        Somente `503` pede reentrega, e o cabecalho `Retry-After` diz em quantos
+        segundos.
+      security:
+        - assinaturaWebhook: []
+      parameters:
+        - name: X-Webhook-Timestamp
+          in: header
+          required: true
+          description: Segundos desde a época, somente digitos.
+          schema:
+            type: string
+            pattern: '^[0-9]+$'
+          examples:
+            exemplo:
+              value: "1789041600"
+        - name: X-Webhook-Signature
+          in: header
+          required: true
+          description: |
+            `v1=` seguido do HMAC-SHA256 em hexadecimal minusculo. O exemplo e um
+            preenchimento de zeros: ele tem o formato certo e **nao** e uma
+            assinatura valida para carga nenhuma.
+          schema:
+            type: string
+            pattern: '^v1=[0-9a-f]{64}$'
+          examples:
+            exemplo:
+              value: v1=0000000000000000000000000000000000000000000000000000000000000000
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CargaDoCallback"
+            examples:
+              sucesso:
+                summary: Processamento concluido
+                value:
+                  event_id: video-success-01a06e16-10ae-73fc-a2d5-3e29ca110001
+                  video_id: 01a06e16-10ae-73fc-a2d5-3e29ca110001
+                  status: ready
+                  playback_reference: videos/01a06e16-10ae-73fc-a2d5-3e29ca110001/original.mp4
+              falha:
+                summary: Processamento falhou
+                value:
+                  event_id: video-failure-01936f1a-7c00-7a3e-9b7d-2f5c8e4a1d60
+                  video_id: 01936f1a-7c00-7a3e-9b7d-2f5c8e4a1d60
+                  status: failed
+                  playback_reference: null
+      responses:
+        "200":
+          description: |
+            Evento aplicado, ou reentrega de um evento ja concluido — nos dois
+            casos o desfecho armazenado e o que a resposta repete.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventoAplicadoEnvelope"
+              examples:
+                aceito:
+                  value:
+                    data:
+                      event_id: video-success-01a06e16-10ae-73fc-a2d5-3e29ca110001
+                      outcome: accepted
+        "401":
+          description: |
+            Assinatura ausente, malformada, incorreta ou fora da janela de cinco
+            minutos. Resposta identica nos quatro casos, e nenhum efeito e
+            produzido.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problema"
+              examples:
+                origemNaoReconhecida:
+                  value:
+                    type: https://api.example.test/problems/webhook-signature-invalid
+                    title: Origem nao reconhecida
+                    status: 401
+                    detail: A origem da requisicao nao pode ser confirmada.
+                    code: WEBHOOK_SIGNATURE_INVALID
+        "409":
+          description: |
+            Rejeicao **permanente**, registrada. O evento e incompativel com o
+            estado atual, ou aponta para uma tentativa que nao existe. Nao
+            reenvie.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problema"
+              examples:
+                eventoIncompativel:
+                  value:
+                    type: https://api.example.test/problems/webhook-event-rejected
+                    title: Evento incompativel
+                    status: 409
+                    detail: O evento nao e compativel com o estado atual e nao sera aplicado. Nao reenvie.
+                    code: WEBHOOK_EVENT_REJECTED
+        "422":
+          description: |
+            Carga estruturalmente invalida — `status` fora do par aceito,
+            `video_id` que nao e UUID, `playback_reference` ausente num `ready`
+            ou presente num `failed`.
+
+            A recusa acontece **antes** de qualquer reserva de idempotencia: um
+            emissor com defeito nao consome o `event_id`, e a reentrega da carga
+            corrigida e avaliada normalmente.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemaDeValidacao"
+              examples:
+                referenciaProibida:
+                  value:
+                    type: https://api.example.test/problems/validation-failed
+                    title: Dados invalidos
+                    status: 422
+                    detail: Revise os campos informados.
+                    code: VALIDATION_FAILED
+                    errors:
+                      playback_reference: ["O campo playback_reference e proibido."]
+        "503":
+          description: |
+            Falha transitoria ao registrar o evento. **Nada foi gravado** e o
+            estado atual foi preservado; a reentrega do mesmo `event_id` sera
+            avaliada do zero.
+          headers:
+            Retry-After:
+              description: Em quantos segundos reenviar.
+              schema:
+                type: integer
+              examples:
+                exemplo:
+                  value: 10
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problema"
+              examples:
+                indisponivel:
+                  value:
+                    type: https://api.example.test/problems/service-unavailable
+                    title: Servico temporariamente indisponivel
+                    status: 503
+                    detail: Tente novamente em alguns instantes.
+                    code: SERVICE_UNAVAILABLE
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+# =============================================================================
+# Componentes
+# =============================================================================
+
+components:
+
+  securitySchemes:
+    sessaoSpa:
+      type: apiKey
+      in: cookie
+      name: laravel-session
+      description: |
+        Cookie de sessao `HttpOnly`, plantado pelo login e enviado
+        automaticamente pelo navegador. Nao ha token no corpo nem em
+        `Authorization`.
+
+        O **nome** do cookie deriva da configuracao do ambiente (`SESSION_COOKIE`,
+        ou o nome da aplicacao quando ela nao e declarada); o valor acima e o do
+        ambiente local. Na pratica um cliente nao precisa conhece-lo: basta
+        preservar e reenviar os cookies que recebeu.
+
+        Operacoes mutantes exigem, **alem** do cookie, o cabecalho `X-XSRF-TOKEN`.
+
+        Clientes fora do navegador precisam enviar tambem `Origin` com uma das
+        origens declaradas como *first-party* no ambiente — sem ele a sessao nao
+        chega a ser aplicada. Ver a descricao da API para o detalhe.
+
+    assinaturaWebhook:
+      type: apiKey
+      in: header
+      name: X-Webhook-Signature
+      description: |
+        Assinatura HMAC-SHA256 sobre `timestamp + "." + corpo bruto`, no formato
+        `v1=<hexadecimal>`, acompanhada obrigatoriamente de `X-Webhook-Timestamp`.
+        Substitui a sessao: o emissor e um servico, e nao um usuario.
+
+  parameters:
+
+    CursoId:
+      name: course
+      in: path
+      required: true
+      description: Identificador do curso.
+      schema:
+        type: string
+        format: uuid
+      examples:
+        exemplo:
+          value: 01a06e16-10ae-73fc-a2d5-3e29c4f41112
+
+    ModuloId:
+      name: module
+      in: path
+      required: true
+      description: Identificador do modulo.
+      schema:
+        type: string
+        format: uuid
+      examples:
+        exemplo:
+          value: 01a06e16-10ae-73fc-a2d5-3e29c7dce499
+
+    AulaId:
+      name: lesson
+      in: path
+      required: true
+      description: Identificador da aula.
+      schema:
+        type: string
+        format: uuid
+      examples:
+        exemplo:
+          value: 01a06e16-10ae-73fc-a2d5-3e29c822bc32
+
+    TentativaId:
+      name: attempt
+      in: path
+      required: true
+      description: Identificador da tentativa de envio, devolvido pela abertura.
+      schema:
+        type: string
+        format: uuid
+      examples:
+        exemplo:
+          value: 01a06e16-10ae-73fc-a2d5-3e29ca110001
+
+    NumeroDaParte:
+      name: part
+      in: path
+      required: true
+      description: |
+        Numero da parte, a partir de 1. O roteador so aceita digitos: um valor
+        nao numerico recebe `404` antes de qualquer codigo da aplicacao rodar.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 10000
+      examples:
+        primeira:
+          value: 1
+
+    Pagina:
+      name: page
+      in: query
+      required: false
+      description: Pagina desejada, a partir de 1.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PorPagina:
+      name: per_page
+      in: query
+      required: false
+      description: |
+        Itens por pagina. Ausente vale 15.
+
+        Valores **acima de 50 sao atendidos e limitados a 50**, e nao recusados:
+        a intencao de quem pede o maximo e legitima, e o teto existe para
+        proteger a resposta. Zero, negativo ou nao inteiro sao `422` — nao existe
+        pagina de tamanho zero, e escolher um padrao no lugar do valor invalido
+        esconderia o engano de quem chamou.
+
+        `meta.per_page` sempre devolve o tamanho **efetivo**.
+      schema:
+        type: integer
+        minimum: 1
+        default: 15
+
+    TokenCsrf:
+      name: X-XSRF-TOKEN
+      in: header
+      required: true
+      description: |
+        Valor do cookie `XSRF-TOKEN`, **decodificado de URL**. Obtido em
+        `GET /sanctum/csrf-cookie` e renovado pelo login, que regenera a sessao.
+      schema:
+        type: string
+      examples:
+        exemplo:
+          value: valor-do-cookie-xsrf-token-decodificado
+
+  schemas:
+
+    # --- Enumeracoes -------------------------------------------------------
+
+    EstadoDoCurso:
+      type: string
+      description: |
+        `draft` ate a primeira aula ser publicada; `available` a partir dai. A
+        promocao e automatica e nao tem rota propria.
+      enum: [draft, available]
+
+    EstadoDoVideo:
+      type: string
+      description: |
+        Ciclo de vida da tentativa de envio.
+
+        `pending` autorizado, nenhum byte ainda · `uploading` transferindo ·
+        `uploaded` objeto verificado, processamento enfileirado · `processing`
+        em processamento · `ready` pronto para reproduzir · `failed` encerrado
+        com falha — o unico estado a partir do qual um novo envio e aceito.
+      enum: [pending, uploading, uploaded, processing, ready, failed]
+
+    CodigoDeFalha:
+      type: string
+      description: |
+        Catalogo fechado de codigos funcionais. E este valor, e nao o texto de
+        `detail`, que o cliente deve usar para decidir o que mostrar.
+      enum:
+        - VALIDATION_FAILED
+        - UNAUTHENTICATED
+        - FORBIDDEN
+        - NOT_FOUND
+        - METHOD_NOT_ALLOWED
+        - CSRF_TOKEN_MISMATCH
+        - CONFLICT
+        - VIDEO_ATTEMPT_ACTIVE
+        - VIDEO_UPLOAD_NOT_ACTIVE
+        - VIDEO_OBJECT_MISSING
+        - VIDEO_OBJECT_MISMATCH
+        - VIDEO_PROCESSING_FAILED
+        - WEBHOOK_SIGNATURE_INVALID
+        - WEBHOOK_EVENT_REJECTED
+        - LESSON_WITHOUT_VIDEO
+        - LESSON_VIDEO_NOT_READY
+        - LESSON_PLAYBACK_REFERENCE_MISSING
+        - LESSON_NOT_PUBLISHED
+        - SERVICE_UNAVAILABLE
+        - INTERNAL_ERROR
+
+    # --- Problema ----------------------------------------------------------
+
+    Problema:
+      type: object
+      description: Corpo de erro conforme a RFC 9457, servido como `application/problem+json`.
+      required: [type, title, status, detail, code]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI do tipo, derivada do codigo funcional.
+        title:
+          type: string
+          description: Titulo curto do problema.
+        status:
+          type: integer
+          description: O mesmo status da resposta HTTP.
+        detail:
+          type: string
+          description: |
+            Mensagem publica, escrita para quem usa a aplicacao. Nunca carrega
+            mensagem de excecao, consulta, caminho de arquivo nem qualquer
+            detalhe interno.
+        code:
+          $ref: "#/components/schemas/CodigoDeFalha"
+
+    ProblemaDeValidacao:
+      allOf:
+        - $ref: "#/components/schemas/Problema"
+        - type: object
+          description: |
+            Unico corpo de erro com detalhamento por campo. As mensagens vem do
+            validador e falam sobre a entrada da requisicao, nunca sobre estado
+            interno.
+          required: [errors]
+          properties:
+            errors:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: string
+
+    ProblemaDePublicacao:
+      allOf:
+        - $ref: "#/components/schemas/Problema"
+        - type: object
+          description: |
+            Acrescenta `video_state` como membro de extensao, para a interface
+            saber o que impede a publicacao sem uma segunda requisicao. Ausente
+            quando a aula nunca teve video.
+          properties:
+            video_state:
+              $ref: "#/components/schemas/EstadoDoVideo"
+
+    ProblemaDeEnvio:
+      allOf:
+        - $ref: "#/components/schemas/Problema"
+        - type: object
+          description: |
+            Acrescenta `video_state` como membro de extensao: qual estado da
+            tentativa atual impede o novo envio.
+          properties:
+            video_state:
+              $ref: "#/components/schemas/EstadoDoVideo"
+
+    # --- Paginacao ---------------------------------------------------------
+
+    PaginacaoMeta:
+      type: object
+      description: Exatamente quatro campos. Um quinto seria contrato novo a manter.
+      required: [current_page, per_page, total, last_page]
+      properties:
+        current_page:
+          type: integer
+        per_page:
+          type: integer
+          description: Tamanho **efetivo** da pagina, ja limitado ao teto de 50.
+        total:
+          type: integer
+          description: Total do conjunto **autorizado** — nunca inclui o que o solicitante nao pode ver.
+        last_page:
+          type: integer
+
+    PaginacaoLinks:
+      type: object
+      description: |
+        Os quatro links carregam o `per_page` efetivo, para que navegar pelos
+        proprios links da API nao mude o tamanho da pagina no meio do caminho.
+      required: [first, prev, next, last]
+      properties:
+        first:
+          type: [string, "null"]
+          format: uri
+        prev:
+          type: [string, "null"]
+          format: uri
+          description: Nulo, e nao ausente, na primeira pagina.
+        next:
+          type: [string, "null"]
+          format: uri
+          description: Nulo, e nao ausente, na ultima pagina.
+        last:
+          type: [string, "null"]
+          format: uri
+
+    # --- Identidade --------------------------------------------------------
+
+    Credenciais:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          format: password
+
+    Usuario:
+      type: object
+      description: |
+        Quatro campos. O hash da senha nao existe nesta representacao e nunca
+        atravessa a fronteira HTTP.
+      required: [id, name, email, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          description: Cada usuario tem exatamente um perfil.
+          enum: [producer, consumer]
+
+    # --- Catalogo ----------------------------------------------------------
+
+    NovoCurso:
+      type: object
+      description: '`owner_id` **nao** e aceito: o proprietario vem da sessao.'
+      required: [title, description]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          minLength: 1
+          maxLength: 16383
+
+    Curso:
+      type: object
+      required: [id, title, description, owner_id, state, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        owner_id:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/EstadoDoCurso"
+        created_at:
+          type: string
+          format: date-time
+          description: ISO 8601 com deslocamento explicito.
+
+    NovoModulo:
+      type: object
+      description: '`position` **nao** e aceita: ela e a proxima livre no curso.'
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+
+    Modulo:
+      type: object
+      required: [id, course_id, title, position]
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        position:
+          type: integer
+          minimum: 1
+
+    NovaAula:
+      type: object
+      description: |
+        `position`, `published_at` e o video **nao** sao aceitos: a posicao e
+        calculada, e a aula nasce em rascunho e sem video.
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+
+    Aula:
+      type: object
+      description: A aula como o **produtor** a ve — seis campos, dois deles anulaveis.
+      required: [id, module_id, title, position, published_at, video_state]
+      properties:
+        id:
+          type: string
+          format: uuid
+        module_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        position:
+          type: integer
+          minimum: 1
+        published_at:
+          type: [string, "null"]
+          format: date-time
+          description: Nulo significa rascunho. Nao existe um estado `draft` proprio.
+        video_state:
+          oneOf:
+            - $ref: "#/components/schemas/EstadoDoVideo"
+            - type: "null"
+          description: Nulo quando a aula ainda nao tem tentativa de video.
+
+    AulaDoConsumidor:
+      type: object
+      description: |
+        A aula como o **consumidor** a ve — cinco campos. `video_state` nao
+        existe aqui, e `published_at` nunca e nula: a arvore do consumidor nao
+        contem rascunho.
+      required: [id, module_id, title, position, published_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        module_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        position:
+          type: integer
+          minimum: 1
+        published_at:
+          type: string
+          format: date-time
+
+    ModuloComAulas:
+      allOf:
+        - $ref: "#/components/schemas/Modulo"
+        - type: object
+          required: [lessons]
+          properties:
+            lessons:
+              type: array
+              description: Ordenadas por `position`. Vazia quando o modulo ainda nao tem aula.
+              items:
+                $ref: "#/components/schemas/Aula"
+
+    ModuloComAulasPublicadas:
+      allOf:
+        - $ref: "#/components/schemas/Modulo"
+        - type: object
+          required: [lessons]
+          properties:
+            lessons:
+              type: array
+              description: Somente aulas publicadas, ordenadas por `position`.
+              items:
+                $ref: "#/components/schemas/AulaDoConsumidor"
+
+    EstruturaDoCurso:
+      allOf:
+        - $ref: "#/components/schemas/Curso"
+        - type: object
+          required: [modules]
+          properties:
+            modules:
+              type: array
+              description: Ordenados por `position`.
+              items:
+                $ref: "#/components/schemas/ModuloComAulas"
+
+    EstruturaDoConsumidor:
+      allOf:
+        - $ref: "#/components/schemas/Curso"
+        - type: object
+          required: [modules]
+          properties:
+            modules:
+              type: array
+              description: Ordenados por `position`.
+              items:
+                $ref: "#/components/schemas/ModuloComAulasPublicadas"
+
+    # --- Video -------------------------------------------------------------
+
+    AberturaDeEnvio:
+      type: object
+      description: |
+        O que o cliente **declara**. Tudo e conferido contra os limites do
+        backend, e o objeto real e observado de novo na conclusao.
+      required: [filename, content_type, size]
+      properties:
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: |
+            Guardado como informacao. **Nao compoe a chave de armazenamento** —
+            ela e derivada do identificador da tentativa.
+        content_type:
+          type: string
+          description: Unico valor aceito. Nao ha transcodificacao nesta entrega.
+          enum: [video/mp4]
+        size:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 10737418240
+          description: Tamanho declarado em bytes. O teto e 10 GiB.
+
+    PlanoDeEnvio:
+      type: object
+      description: A estrategia de transferencia que o cliente deve executar.
+      required: [attempt_id, storage_key, upload_id, part_size, part_count]
+      properties:
+        attempt_id:
+          type: string
+          format: uuid
+          description: Identifica a tentativa nas rotas de parte e de conclusao.
+        storage_key:
+          type: string
+          description: Chave do objeto, escolhida pelo servidor.
+        upload_id:
+          type: string
+          description: Identificador da operacao multipart, emitido pelo armazenamento.
+        part_size:
+          type: integer
+          format: int64
+          description: Tamanho de cada parte em bytes — 64 MiB. A ultima parte pode ser menor.
+        part_count:
+          type: integer
+          minimum: 1
+          description: Quantas partes o arquivo declarado tera.
+
+    UrlDeParte:
+      type: object
+      required: [url, expires_at]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: |
+            Endereco temporario para o `PUT` daquela parte, **direto ao
+            armazenamento**. Assinada para o endereco publico.
+        expires_at:
+          type: string
+          format: date-time
+          description: Quinze minutos apos a emissao. Vencida, peca outra pela mesma rota.
+
+    ParteConcluida:
+      type: object
+      required: [part_number, etag]
+      properties:
+        part_number:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        etag:
+          type: string
+          minLength: 1
+          description: |
+            O comprovante devolvido pelo armazenamento naquele `PUT`, repassado
+            **exatamente como veio, aspas inclusive**.
+
+    ConclusaoDeEnvio:
+      type: object
+      required: [parts]
+      properties:
+        parts:
+          type: array
+          minItems: 1
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/ParteConcluida"
+
+    TentativaDeVideo:
+      type: object
+      description: |
+        O estado do envio. **Nao expoe** chave de armazenamento, identificador
+        multipart, tamanho verificado nem referencia de reproducao.
+      required: [id, lesson_id, state, filename, failure_code, failure_message]
+      properties:
+        id:
+          type: string
+          format: uuid
+        lesson_id:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/EstadoDoVideo"
+        filename:
+          type: string
+          description: O nome declarado na abertura.
+        failure_code:
+          oneOf:
+            - $ref: "#/components/schemas/CodigoDeFalha"
+            - type: "null"
+          description: Preenchido quando `state` e `failed`. Nulo, e nao ausente, nos demais.
+        failure_message:
+          type: [string, "null"]
+          description: |
+            O mesmo texto publico que a recusa devolveu. Vem do catalogo fechado
+            de falhas, nunca de uma mensagem de excecao.
+
+    Reproducao:
+      type: object
+      description: Dados de reproducao — nunca o arquivo.
+      required: [playback_url, expires_at, content_type]
+      properties:
+        playback_url:
+          type: string
+          format: uri
+          description: URL `GET` pre-assinada, valida por cinco minutos.
+        expires_at:
+          type: string
+          format: date-time
+          description: |
+            Quando a URL deixa de funcionar. Acompanha a URL para o player poder
+            renovar antes de o armazenamento recusar no meio da reproducao.
+        content_type:
+          type: string
+          description: O tipo observado no objeto durante a conclusao do envio.
+          examples: ["video/mp4"]
+
+    # --- Webhook -----------------------------------------------------------
+
+    CargaDoCallback:
+      type: object
+      description: |
+        Exatamente quatro campos. As duas exigencias cruzadas sao recusa ativa, e
+        nao tolerancia: `playback_reference` e **obrigatoria** com `ready` e
+        **proibida** com `failed`.
+      required: [event_id, video_id, status]
+      properties:
+        event_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Unica chave de idempotencia. O primeiro desfecho definitivo vence.
+        video_id:
+          type: string
+          format: uuid
+          description: |
+            Identificador da tentativa. Um valor que nao e UUID e carga
+            malformada (`422`); um UUID bem formado que nao corresponde a
+            tentativa alguma e rejeicao permanente (`409`).
+        status:
+          type: string
+          enum: [ready, failed]
+        playback_reference:
+          type: [string, "null"]
+          maxLength: 255
+          description: |
+            Obrigatoria quando `status` e `ready`; proibida quando e `failed`.
+            E ela — e nao uma chave remontada — que a reproducao assina depois.
+
+    EventoAplicado:
+      type: object
+      required: [event_id, outcome]
+      properties:
+        event_id:
+          type: string
+        outcome:
+          type: string
+          description: |
+            `accepted` — o desfecho foi aplicado ao video.
+            `rejected_permanent` acompanha o `409`, e nao esta corpo.
+          enum: [accepted, rejected_permanent]
+
+    # --- Envelopes ---------------------------------------------------------
+
+    UsuarioEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Usuario"
+
+    CursoEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Curso"
+
+    ModuloEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Modulo"
+
+    ModulosEnvelope:
+      type: object
+      description: Colecao sem paginacao — sem `meta` e sem `links`.
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Modulo"
+
+    AulaEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Aula"
+
+    EstruturaEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/EstruturaDoCurso"
+
+    EstruturaDoConsumidorEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/EstruturaDoConsumidor"
+
+    CursosPaginados:
+      type: object
+      required: [data, meta, links]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Curso"
+        meta:
+          $ref: "#/components/schemas/PaginacaoMeta"
+        links:
+          $ref: "#/components/schemas/PaginacaoLinks"
+
+    PlanoEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/PlanoDeEnvio"
+
+    UrlDeParteEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/UrlDeParte"
+
+    TentativaEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/TentativaDeVideo"
+
+    TentativaOuNuloEnvelope:
+      type: object
+      description: '`data` e `null` quando a aula ainda nao tem tentativa de video.'
+      required: [data]
+      properties:
+        data:
+          oneOf:
+            - $ref: "#/components/schemas/TentativaDeVideo"
+            - type: "null"
+
+    ReproducaoEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/Reproducao"
+
+    EventoAplicadoEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/EventoAplicado"
+
+  responses:
+
+    NaoAutenticado:
+      description: |
+        Sem sessao valida. E um estado proprio na interface, distinto de acesso
+        negado: reconduz a autenticacao.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          examples:
+            semSessao:
+              value:
+                type: https://api.example.test/problems/unauthenticated
+                title: Nao autenticado
+                status: 401
+                detail: Entre na aplicacao para continuar.
+                code: UNAUTHENTICATED
+
+    PerfilNegado:
+      description: |
+        Autenticado, **perfil errado para a rota**. Um produtor nas rotas de
+        consumo, ou um consumidor nas de gestao — inclusive o produtor dono do
+        recurso, porque ser dono nao e ser consumidor.
+
+        Nao confundir com `404`: aqui nada e revelado sobre nenhum recurso.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          examples:
+            perfilErrado:
+              value:
+                type: https://api.example.test/problems/forbidden
+                title: Acesso negado
+                status: 403
+                detail: Esta conta nao tem permissao para esta operacao.
+                code: FORBIDDEN
+
+    NaoEncontrado:
+      description: |
+        Recurso inexistente, de outro produtor, ou curso sem concessao —
+        **resposta identica nos tres casos**, com o mesmo corpo. Comparar as
+        respostas nao permite descobrir se o identificador existe.
+
+        Tambem e o que um identificador malformado recebe: o roteador o recusa
+        antes de a aplicacao rodar.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          examples:
+            naoEncontrado:
+              value:
+                type: https://api.example.test/problems/not-found
+                title: Recurso nao encontrado
+                status: 404
+                detail: O recurso solicitado nao existe ou nao esta disponivel.
+                code: NOT_FOUND
+
+    TokenCsrfInvalido:
+      description: |
+        Token de protecao ausente ou incorreto. **A operacao nao foi executada.**
+
+        Tratamento correto: obter um token novo em `GET /sanctum/csrf-cookie` — ou
+        reler o cookie `XSRF-TOKEN`, que o login regenera — e repetir a
+        requisicao **uma vez**. Nao e falha de autenticacao, e a sessao continua
+        valida.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          examples:
+            tokenAusente:
+              value:
+                type: https://api.example.test/problems/csrf-token-mismatch
+                title: Token de seguranca invalido
+                status: 419
+                detail: >-
+                  O token de seguranca da requisicao esta ausente ou expirou.
+                  Obtenha um novo token e repita a operacao.
+                code: CSRF_TOKEN_MISMATCH
+
+    ValidacaoFalhou:
+      description: Entrada invalida, com o detalhamento por campo em `errors`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemaDeValidacao"
+          examples:
+            camposInvalidos:
+              value:
+                type: https://api.example.test/problems/validation-failed
+                title: Dados invalidos
+                status: 422
+                detail: Revise os campos informados.
+                code: VALIDATION_FAILED
+                errors:
+                  title: ["O campo titulo e obrigatorio."]
+
+    ErroInterno:
+      description: |
+        Falha inesperada. A resposta e **sempre a mesma**, inclusive com
+        depuracao ligada: nada do erro original — mensagem, classe, arquivo,
+        linha, consulta ou pilha — atravessa esta fronteira. O registro completo
+        vai para o log.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          examples:
+            erroInterno:
+              value:
+                type: https://api.example.test/problems/internal-error
+                title: Erro interno
+                status: 500
+                detail: Nao foi possivel concluir a operacao.
+                code: INTERNAL_ERROR
