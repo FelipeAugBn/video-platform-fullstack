@@ -43,7 +43,8 @@ final class ProblemStatus
             Failure::WEBHOOK_EVENT_REJECTED,
             Failure::LESSON_WITHOUT_VIDEO,
             Failure::LESSON_VIDEO_NOT_READY,
-            Failure::LESSON_PLAYBACK_REFERENCE_MISSING => 409,
+            Failure::LESSON_PLAYBACK_REFERENCE_MISSING,
+            Failure::LESSON_NOT_PUBLISHED => 409,
 
             // Assinatura ausente, malformada, incorreta ou fora da janela. E
             // `401` e nao `403`: o emissor nao se identificou de forma

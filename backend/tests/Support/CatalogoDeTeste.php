@@ -114,6 +114,24 @@ trait CatalogoDeTeste
     }
 
     /**
+     * Concede a um consumidor o acesso a um curso.
+     *
+     * Gravada por `insert`, e nao por um caso de uso: conceder acesso nao e
+     * operacao desta entrega — a concessao vem do seed (RF-CONS-006) —, e nao ha
+     * caminho de escrita da aplicacao para reproduzir aqui. O que os testes
+     * precisam dela e apenas a linha que a consulta do consumidor procura.
+     */
+    protected function concedidoA(Course $curso, User $consumidor): void
+    {
+        DB::table('course_access_grants')->insert([
+            'id' => (string) Str::uuid7(),
+            'course_id' => $curso->id(),
+            'consumer_id' => (string) $consumidor->getKey(),
+            'granted_at' => now(),
+        ]);
+    }
+
+    /**
      * Marca a aula como publicada, sem passar por um caso de uso que ainda nao
      * existe.
      *

@@ -81,6 +81,22 @@ enum Failure: string
     case LESSON_WITHOUT_VIDEO = 'LESSON_WITHOUT_VIDEO';
     case LESSON_VIDEO_NOT_READY = 'LESSON_VIDEO_NOT_READY';
     case LESSON_PLAYBACK_REFERENCE_MISSING = 'LESSON_PLAYBACK_REFERENCE_MISSING';
+
+    /*
+     * Reproducao.
+     *
+     * Um caso so, e ele responde a unica indisponibilidade que o consumidor
+     * distingue por conta propria: a aula ainda esta em rascunho. As demais —
+     * aula publicada sem tentativa atual, tentativa fora de `ready`, tentativa
+     * pronta sem referencia — reaproveitam `LESSON_VIDEO_NOT_READY`, cuja
+     * mensagem ja e a certa para quem tenta assistir.
+     *
+     * A negativa por indisponibilidade e `409`, e a por falta de concessao e
+     * `404`: sao respostas diferentes de proposito, porque a interface precisa
+     * separar "ainda nao esta pronto" de "nao e para voce" (RF-PLB-007,
+     * RF-UI-015).
+     */
+    case LESSON_NOT_PUBLISHED = 'LESSON_NOT_PUBLISHED';
     case SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE';
     case INTERNAL_ERROR = 'INTERNAL_ERROR';
 
@@ -116,6 +132,7 @@ enum Failure: string
             self::LESSON_WITHOUT_VIDEO => 'Aula sem video',
             self::LESSON_VIDEO_NOT_READY => 'Video ainda nao esta pronto',
             self::LESSON_PLAYBACK_REFERENCE_MISSING => 'Video sem referencia de reproducao',
+            self::LESSON_NOT_PUBLISHED => 'Aula nao publicada',
             self::SERVICE_UNAVAILABLE => 'Servico temporariamente indisponivel',
             self::INTERNAL_ERROR => 'Erro interno',
         };
@@ -155,6 +172,7 @@ enum Failure: string
             self::LESSON_VIDEO_NOT_READY => 'O video desta aula ainda nao esta pronto para reproducao.',
             self::LESSON_PLAYBACK_REFERENCE_MISSING => 'O video desta aula nao tem referencia de reproducao '
                 .'registrada.',
+            self::LESSON_NOT_PUBLISHED => 'Esta aula ainda nao foi publicada.',
             self::SERVICE_UNAVAILABLE => 'Tente novamente em alguns instantes.',
             self::INTERNAL_ERROR => 'Nao foi possivel concluir a operacao.',
         };

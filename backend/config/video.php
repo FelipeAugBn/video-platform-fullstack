@@ -94,6 +94,21 @@ return [
 
     ],
 
+    'playback' => [
+
+        /*
+        | Validade da URL de leitura (plan §14.2).
+        |
+        | Cinco minutos: janela curta o bastante para reduzir o valor de uma URL
+        | copiada, e longa o bastante para o player comecar a reproduzir sem
+        | pedir outra. A limitacao esta assumida — a URL funciona ate expirar, e
+        | eliminar a redistribuicao exigiria cookie assinado, token por sessao de
+        | player ou DRM, fora do escopo.
+        */
+        'url_ttl' => 5 * 60,
+
+    ],
+
     'simulator' => [
 
         /*

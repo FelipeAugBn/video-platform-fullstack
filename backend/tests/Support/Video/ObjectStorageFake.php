@@ -41,6 +41,19 @@ final class ObjectStorageFake implements ObjectStorage
     public ?StorageFailure $falhaAoInspecionar = null;
 
     /**
+     * As chaves para as quais uma URL de leitura foi assinada, na ordem.
+     *
+     * E o registro que sustenta a afirmacao mais importante da reproducao: nos
+     * caminhos negativos esta lista continua vazia, porque a URL so pode ser
+     * emitida depois de todas as verificacoes (plan §14.2).
+     *
+     * @var list<array{key: string, expiresAt: DateTimeImmutable}>
+     */
+    public array $leituras = [];
+
+    public ?StorageFailure $falhaAoAssinarLeitura = null;
+
+    /**
      * Registra um objeto como o armazenamento o reportaria.
      *
      * @param  array<string, string>  $metadata
@@ -89,6 +102,15 @@ final class ObjectStorageFake implements ObjectStorage
 
     public function presignRead(string $key, DateTimeImmutable $expiresAt): string
     {
-        return 'https://storage.test/'.$key;
+        // Registrado antes da falha, como em `completeMultipartUpload`: um teste
+        // que afirma "o storage nao foi chamado" precisa contar as tentativas, e
+        // nao apenas as bem-sucedidas.
+        $this->leituras[] = ['key' => $key, 'expiresAt' => $expiresAt];
+
+        if ($this->falhaAoAssinarLeitura !== null) {
+            throw $this->falhaAoAssinarLeitura;
+        }
+
+        return 'https://storage.test/'.$key.'?expira='.$expiresAt->getTimestamp();
     }
 }

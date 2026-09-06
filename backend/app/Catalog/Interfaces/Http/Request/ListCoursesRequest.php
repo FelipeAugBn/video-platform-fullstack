@@ -8,7 +8,15 @@ use App\Shared\Interfaces\Http\Resource\PerPage;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * A entrada de `GET /api/courses`.
+ * A entrada das duas listagens de curso — `GET /api/courses`, do produtor, e
+ * `GET /api/catalog/courses`, do consumidor.
+ *
+ * Uma classe so porque o contrato de paginacao e um so (plan §10.1): mesmo
+ * padrao, mesmo teto, mesmas mensagens. Duas copias com as mesmas duas regras
+ * estariam livres para divergir, e paginacao que muda de comportamento conforme
+ * o perfil e paginacao que o cliente precisa aprender duas vezes. O que difere
+ * entre as duas rotas — dono ou concessao — nao passa por aqui: e decidido no
+ * caso de uso, a partir da sessao.
  *
  * Os dois parametros sao opcionais, e a diferenca de tratamento entre eles e
  * deliberada:

@@ -1433,7 +1433,7 @@ fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 ## Fase 11 — Consumo e reprodução
 
-- [ ] **T070** Catálogo do consumidor, autorização por concessão e reprodução
+- [x] **T070** Catálogo do consumidor, autorização por concessão e reprodução
   - **Objetivo:** o consumidor vê o que lhe foi concedido, navega pelo conteúdo
     publicado e obtém os dados de reprodução — e nada além disso.
   - **Arquivos previstos:** `Identity/Application/Port/AccessGrantRepository.php`

@@ -485,10 +485,13 @@ final class HttpContractTest extends TestCase
                 'api/video-uploads/{attempt}/complete',
                 'api/video-uploads/{attempt}/parts/{part}/url',
                 'api/webhooks/video-processing',
+                'api/catalog/courses', 'api/catalog/courses/{course}',
+                'api/lessons/{lesson}/playback',
             ],
             $uris,
             'Sob o prefixo da API existem autenticacao, catalogo do produtor, envio de video, '
-                .'publicacao e o callback de processamento nesta etapa.',
+                .'publicacao, o callback de processamento, o catalogo do consumidor e a '
+                .'reproducao nesta etapa.',
         );
 
         // As rotas que a propria suite registra para exercitar o contrato

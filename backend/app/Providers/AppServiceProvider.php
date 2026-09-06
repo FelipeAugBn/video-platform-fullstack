@@ -5,17 +5,22 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Catalog\Application\Port\CatalogReadModel;
+use App\Catalog\Application\Port\ConsumerCatalogReadModel;
 use App\Catalog\Application\Port\CourseRepository;
 use App\Catalog\Application\Port\LessonRepository;
 use App\Catalog\Application\Port\ModuleRepository;
 use App\Catalog\Infrastructure\Persistence\Eloquent\EloquentCatalogReadModel;
+use App\Catalog\Infrastructure\Persistence\Eloquent\EloquentConsumerCatalogReadModel;
 use App\Catalog\Infrastructure\Persistence\Eloquent\EloquentCourseRepository;
 use App\Catalog\Infrastructure\Persistence\Eloquent\EloquentLessonRepository;
 use App\Catalog\Infrastructure\Persistence\Eloquent\EloquentModuleRepository;
+use App\Identity\Application\Port\AccessGrantRepository;
+use App\Identity\Infrastructure\Persistence\Eloquent\EloquentAccessGrantRepository;
 use App\Shared\Application\Port\Clock;
 use App\Shared\Application\Port\TransactionManager;
 use App\Shared\Infrastructure\Clock\SystemClock;
 use App\Shared\Infrastructure\Transaction\DatabaseTransactionManager;
+use App\Video\Application\GetPlayback\GetPlayback;
 use App\Video\Application\Port\AttemptLock;
 use App\Video\Application\Port\ObjectStorage;
 use App\Video\Application\Port\ProcessingQueue;
@@ -57,6 +62,12 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ModuleRepository::class, EloquentModuleRepository::class);
         $this->app->singleton(LessonRepository::class, EloquentLessonRepository::class);
         $this->app->singleton(CatalogReadModel::class, EloquentCatalogReadModel::class);
+        $this->app->singleton(ConsumerCatalogReadModel::class, EloquentConsumerCatalogReadModel::class);
+
+        // Concessao mora em `Identity`, e nao no catalogo: a pergunta e sobre o
+        // usuario, e nao sobre o conteudo. Propriedade e concessao continuam
+        // sendo duas portas separadas, com duas tabelas separadas (plan §9.3).
+        $this->app->singleton(AccessGrantRepository::class, EloquentAccessGrantRepository::class);
 
         // O adapter de storage e o unico registro que nao e uma classe para
         // outra: ele precisa da configuracao para montar os dois clientes do SDK,
@@ -114,6 +125,14 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->when(ProcessingCallbackController::class)
             ->needs('$retryAfterSeconds')
             ->give(static fn (): int => (int) config('video.webhook.retry_after'));
+
+        // Mesmo motivo, do outro lado do fluxo: a validade da URL de reproducao
+        // e politica do caso de uso (plan §14.2), e ele continua construivel com
+        // um valor explicito — o que permite a um teste encurtar ou alongar a
+        // janela sem tocar no ambiente.
+        $this->app->when(GetPlayback::class)
+            ->needs('$urlTtlSeconds')
+            ->give(static fn (): int => (int) config('video.playback.url_ttl'));
     }
 
     public function boot(): void

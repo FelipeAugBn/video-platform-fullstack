@@ -2,11 +2,13 @@
 
 declare(strict_types=1);
 
+use App\Catalog\Interfaces\Http\Controller\ConsumerCatalogController;
 use App\Catalog\Interfaces\Http\Controller\CourseController;
 use App\Catalog\Interfaces\Http\Controller\LessonController;
 use App\Catalog\Interfaces\Http\Controller\ModuleController;
 use App\Identity\Interfaces\Http\Controller\AuthController;
 use App\Video\Infrastructure\Webhook\VerifyWebhookSignature;
+use App\Video\Interfaces\Http\Controller\PlaybackController;
 use App\Video\Interfaces\Http\Controller\ProcessingCallbackController;
 use App\Video\Interfaces\Http\Controller\VideoUploadController;
 use Illuminate\Support\Facades\Route;
@@ -171,6 +173,50 @@ Route::middleware(['auth:sanctum', 'role:producer'])->group(function (): void {
     Route::post('video-uploads/{attempt}/complete', [VideoUploadController::class, 'complete'])
         ->whereUuid('attempt')
         ->name('video-uploads.complete');
+});
+
+/*
+| Catalogo do consumidor e reproducao.
+|
+| Mesma estrutura do grupo anterior, com o perfil trocado: sessao valida e
+| perfil de consumidor, declarados uma vez para as tres rotas. A ordem tambem e
+| a mesma — `auth:sanctum` responde `401` a quem nao esta autenticado, e so
+| entao `role:consumer` responde `403` a um produtor autenticado.
+|
+| **Perfil nao e concessao.** Passar por `role:consumer` nao da acesso a curso
+| nenhum: quem decide isso e o caso de uso, dentro da consulta, e a negativa la
+| e `404` — indistinguivel da de um curso inexistente (plan §9.3). As duas
+| camadas existem porque respondem perguntas diferentes, e a de fora nao
+| substitui a de dentro.
+|
+| As rotas de catalogo ficam sob `catalog/` para nao colidirem com
+| `GET /api/courses`, que e a listagem do produtor. Sao coleccoes diferentes,
+| com regras de acesso diferentes, e um mesmo endereco servindo as duas
+| obrigaria a rota a escolher a regra pelo perfil de quem chamou.
+|
+| Nao existe `POST`, `PUT` nem `DELETE`: o consumidor le. Conceder acesso nao e
+| operacao desta entrega — a concessao vem do seed (RF-CONS-006).
+*/
+Route::middleware(['auth:sanctum', 'role:consumer'])->group(function (): void {
+    Route::get('catalog/courses', [ConsumerCatalogController::class, 'index'])
+        ->name('catalog.courses.index');
+
+    Route::get('catalog/courses/{course}', [ConsumerCatalogController::class, 'show'])
+        ->whereUuid('course')
+        ->name('catalog.courses.show');
+
+    /*
+    | Reproducao — a segunda rota nomeada literalmente pelo desafio, preservada
+    | como esta escrita la.
+    |
+    | Ela e um `GET` e nao muda nada: o que devolve sao **dados de reproducao**,
+    | e nao o arquivo (RF-PLB-005). Os bytes vao do armazenamento direto ao
+    | player, pela URL assinada de cinco minutos que a resposta carrega — a
+    | aplicacao autoriza e sai do caminho.
+    */
+    Route::get('lessons/{lesson}/playback', PlaybackController::class)
+        ->whereUuid('lesson')
+        ->name('lessons.playback');
 });
 
 /*
