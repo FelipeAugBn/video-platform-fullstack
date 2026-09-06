@@ -341,6 +341,11 @@ final class LessonCreationTest extends TestCase
                 return $this->real->findOwned($lessonId, $ownerId);
             }
 
+            public function lockOwned(string $lessonId, string $ownerId): ?Lesson
+            {
+                return $this->real->lockOwned($lessonId, $ownerId);
+            }
+
             public function nextPosition(string $moduleId): int
             {
                 return $this->real->nextPosition($moduleId);
@@ -399,6 +404,11 @@ final class LessonCreationTest extends TestCase
             public function findOwned(string $lessonId, string $ownerId): ?Lesson
             {
                 return $this->real->findOwned($lessonId, $ownerId);
+            }
+
+            public function lockOwned(string $lessonId, string $ownerId): ?Lesson
+            {
+                return $this->real->lockOwned($lessonId, $ownerId);
             }
 
             public function nextPosition(string $moduleId): int

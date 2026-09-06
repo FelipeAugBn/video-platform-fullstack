@@ -480,9 +480,15 @@ final class HttpContractTest extends TestCase
                 'api/courses', 'api/courses/{course}',
                 'api/courses/{course}/modules', 'api/courses/{course}/structure',
                 'api/modules/{module}/lessons', 'api/lessons/{lesson}',
+                'api/lessons/{lesson}/publish',
+                'api/lessons/{lesson}/video', 'api/lessons/{lesson}/video/uploads',
+                'api/video-uploads/{attempt}/complete',
+                'api/video-uploads/{attempt}/parts/{part}/url',
+                'api/webhooks/video-processing',
             ],
             $uris,
-            'Sob o prefixo da API existem apenas autenticacao e o catalogo do produtor nesta etapa.',
+            'Sob o prefixo da API existem autenticacao, catalogo do produtor, envio de video, '
+                .'publicacao e o callback de processamento nesta etapa.',
         );
 
         // As rotas que a propria suite registra para exercitar o contrato

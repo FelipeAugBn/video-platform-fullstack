@@ -997,12 +997,12 @@ mensagem de exceção ou detalhe interno (RN-AUT-005).
 | --- | --- |
 | `200` | Leitura, ou operação idempotente já efetivada |
 | `201` | Criação de curso, módulo, aula ou tentativa de envio |
-| `202` | Conclusão de envio aceita com processamento enfileirado — único uso de `202` na API |
+| `202` | Conclusão de envio aceita **agora**, com processamento enfileirado — único uso de `202` na API |
 | `401` | Não autenticado ou sessão expirada |
 | `403` | Autenticado, perfil não permitido para a rota |
 | `404` | Recurso inexistente, de outro produtor, ou curso sem concessão |
 | `405` | Método HTTP não permitido para uma rota existente |
-| `409` | Conflito de regra: publicar sem vídeo pronto, novo envio sobre tentativa ativa, callback permanentemente incompatível |
+| `409` | Conflito de regra: publicar sem vídeo pronto, novo envio sobre tentativa ativa, conclusão de envio recusada por objeto ausente ou incompatível, conclusão pedida sobre tentativa que não começou a transferir, callback permanentemente incompatível |
 | `419` | Token de proteção contra requisição forjada ausente ou inválido, em operação que exige sessão |
 | `422` | Validação de entrada, incluindo credencial de autenticação recusada; também carga de webhook estruturalmente inválida |
 | `503` | Falha transitória ao processar o callback, com `Retry-After`; ou storage transitoriamente indisponível na conclusão |
@@ -1010,6 +1010,26 @@ mensagem de exceção ou detalhe interno (RN-AUT-005).
 O webhook responde `200` quando o evento é aceito, porque ele é aplicado
 sincronamente: quando a resposta sai, a transição já ocorreu. `202` fica
 reservado à conclusão de envio, que de fato deixa trabalho enfileirado.
+
+**A conclusão de envio tem quatro respostas, e o que as separa é o desfecho da
+operação — nunca o estado em que a tentativa ficou.** Uma conclusão aceita agora
+e uma repetida terminam as duas em `uploaded`, e só a primeira enfileirou
+trabalho:
+
+| Situação | Resposta |
+| --- | --- |
+| Conclusão nova e válida, com o `ProcessVideoJob` no mesmo commit | `202` |
+| Repetição de uma conclusão já aceita — em `uploaded`, `processing` ou `ready` | `200`, sem job novo |
+| Objeto confirmadamente ausente ou incompatível, e a repetição dessa recusa | `409` com o `code` gravado na tentativa |
+| Conclusão pedida sobre tentativa em `pending`, que não começou a transferir | `409` com `code` próprio, sem tocar no storage |
+| Ausência de evidência sobre o objeto | `503`, preservando `uploading` |
+
+A recusa é **gravada e confirmada antes** de virar `409`: a transição para
+`failed` pertence à transação que commita, e a resposta de erro é montada depois
+dela. Fazer a recusa subir como exceção de dentro da transação desfaria o
+`failed` junto, e a tentativa voltaria a `uploading` — o produtor receberia o erro
+e continuaria sem poder iniciar um novo envio, porque `uploading` bloqueia
+(RF-UPL-011).
 
 `401` e `403` são estados distintos na interface (RF-UI-013, RF-UI-014): um
 reconduz à autenticação, o outro não tem saída pela mesma sessão.
@@ -1032,7 +1052,7 @@ reconduz à autenticação, o outro não tem saída pela mesma sessão.
 | `GET /api/lessons/{lesson}` | producer | `200` |
 | `POST /api/lessons/{lesson}/video/uploads` | producer | `201` plano de envio |
 | `POST /api/video-uploads/{attempt}/parts/{n}/url` | producer | `200` URL de parte |
-| `POST /api/video-uploads/{attempt}/complete` | producer | `202` |
+| `POST /api/video-uploads/{attempt}/complete` | producer | `202`, `200`, `409` ou `503` |
 | `GET /api/lessons/{lesson}/video` | producer | `200` estado da tentativa atual |
 | `POST /api/lessons/{lesson}/publish` | producer | `200` |
 | `GET /api/catalog/courses` | consumer | `200` paginado, apenas concedidos e `available` |
@@ -1178,8 +1198,12 @@ transação MySQL permanece aberta durante uma chamada de rede:
 5. **Verificação**, descrita em §12.3.
 6. **Nova transação.** Relê a tentativa com `FOR UPDATE` e reavalia o estado.
    Somente uma requisição transiciona para `uploaded`, grava `verified_size` e
-   `verified_content_type` e agenda o job de processamento.
-7. **Após o commit**, o job é despachado. Resposta `202`.
+   `verified_content_type` e **cria o `ProcessVideoJob` dentro desta mesma
+   transação** — a fila `database` usa a conexão do domínio, então a linha de
+   `jobs` participa deste commit (§7.4).
+7. **Commit.** Estado e job passam a existir juntos e a ficar visíveis juntos:
+   antes dele a linha de `jobs` não existe para nenhum outro processo, e o
+   `worker` não a alcança. **Somente depois do commit** a API responde `202`.
 
 O passo 6 reavalia em vez de confiar no que o passo 1 leu: entre os dois houve
 duas chamadas de rede, e o estado pode ter mudado. A repetição encontra a

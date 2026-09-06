@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Identity\Interfaces\Http\Middleware\EnsureUserHasRole;
 use App\Shared\Domain\Exception\DomainException;
 use App\Shared\Interfaces\Http\Problem\ApiExceptionHandler;
+use App\Video\Interfaces\Console\SimulateVideoFailureCommand;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,6 +17,21 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    /*
+    | Comandos declarados um a um, e nao descobertos por diretorio.
+    |
+    | A descoberta automatica do framework varre `app/Console/Commands`, que nao
+    | existe nesta organizacao: cada area guarda os proprios pontos de entrada em
+    | `Interfaces`, e o console e um deles tanto quanto o HTTP (plan §5.2). Mover
+    | o comando para o diretorio convencional o separaria do dominio que ele
+    | aciona.
+    |
+    | A lista explicita tambem diz, em um lugar so, qual e a superficie de
+    | console desta entrega: um comando.
+    */
+    ->withCommands([
+        SimulateVideoFailureCommand::class,
+    ])
     ->withMiddleware(function (Middleware $middleware): void {
         // Modo SPA do Sanctum: requisicoes vindas dos dominios declarados em
         // `config/sanctum.php` recebem sessao, cookies e protecao CSRF, e
@@ -43,6 +59,21 @@ return Application::configure(basePath: dirname(__DIR__))
         // resposta declarada no catalogo (RN-AUT-005, plan §10.3). Nenhuma rota
         // ficticia e criada, e nenhum cabecalho `Location` e emitido.
         $middleware->redirectGuestsTo(null);
+
+        // O callback de processamento nao valida token CSRF.
+        //
+        // Ele nao vem de um navegador: quem o emite e um servico, e a origem e
+        // provada por assinatura HMAC (plan §13.4). Um token CSRF exige sessao,
+        // e nao ha sessao do lado de la para conter um.
+        //
+        // A dispensa e **explicita**, com o endereco escrito. Sem ela, a rota ja
+        // funcionaria — a protecao de sessao do Sanctum so age sobre origens
+        // reconhecidas como first-party, e o simulador nao e uma delas —, mas
+        // isso dependeria de um cabecalho `Origin` que quem chama controla. Uma
+        // garantia que o proprio requisitante pode mudar nao e garantia.
+        $middleware->validateCsrfTokens(except: [
+            'api/webhooks/video-processing',
+        ]);
 
         // Perfil na fronteira HTTP. A propriedade do recurso e decidida no caso
         // de uso, e nao aqui (plan §9.3).

@@ -44,6 +44,16 @@ interface LessonRepository
     public function findOwned(string $lessonId, string $ownerId): ?Lesson;
 
     /**
+     * O mesmo que {@see findOwned()}, com a linha travada ate o fim da transacao.
+     *
+     * Duas operacoes precisam dela, e pelo mesmo motivo: abrir um envio e
+     * publicar decidem sobre o estado da aula e o alteram na sequencia
+     * (plan §8.5). Ler sem travar deixaria duas requisicoes simultaneas
+     * decidirem sobre a mesma leitura e gravarem por cima uma da outra.
+     */
+    public function lockOwned(string $lessonId, string $ownerId): ?Lesson;
+
+    /**
      * A proxima posicao livre dentro do modulo: o maior valor existente mais um,
      * ou 1 quando ainda nao houver aula (RN-ORD-002).
      *

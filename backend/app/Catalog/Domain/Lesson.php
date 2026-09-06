@@ -24,10 +24,13 @@ use DateTimeImmutable;
  *                              identificador porque a tentativa e outro agregado,
  *                              com ciclo de vida proprio (plan §6.1).
  *
- * **A publicacao nao e implementada aqui.** Nao ha `publish()` nesta etapa: ela
- * exige o video pronto e a referencia de reproducao presentes, e o agregado de
- * video ainda nao existe. Declarar o metodo agora obrigaria a decidir sem os
- * dados, e um metodo que ninguem chama nao tem teste que o corrija.
+ * **A publicacao vive aqui, e a elegibilidade nao.** `publish()` marca o
+ * instante; quem verifica se o video esta pronto e tem referencia de reproducao
+ * e o caso de uso, que coordena os tres agregados sob trava (plan §6.1). A
+ * divisao e consequencia direta de `VideoAttempt` ser outro agregado: a aula nao
+ * guarda o estado do video, so o identificador da tentativa — e um metodo aqui
+ * que decidisse sobre um estado que a aula nao tem teria de recebe-lo por
+ * parametro, o que e a mesma verificacao escrita num lugar pior.
  *
  * A posicao segue a mesma regra de `Module`: calculada pelo caso de uso sob lock
  * da linha do modulo, verificada aqui.
@@ -127,6 +130,52 @@ final class Lesson
     public function currentVideoAttemptId(): ?string
     {
         return $this->currentVideoAttemptId;
+    }
+
+    /**
+     * A aula passa a apontar para esta tentativa de video.
+     *
+     * Substituir e apontar para outra linha, e nao sobrescrever a anterior: cada
+     * envio cria uma tentativa nova, e o historico fica preservado sem custo
+     * (RF-UPL-005, RN-VID-002). Uma aula tem no maximo **uma** tentativa atual
+     * (RF-AUL-005), e a assinatura de um unico identificador e o que torna isso
+     * verdade por construcao.
+     */
+    public function attachVideoAttempt(string $videoAttemptId): self
+    {
+        return new self(
+            id: $this->id,
+            moduleId: $this->moduleId,
+            title: $this->title,
+            position: $this->position,
+            publishedAt: $this->publishedAt,
+            currentVideoAttemptId: $videoAttemptId,
+        );
+    }
+
+    /**
+     * A aula deixa de ser rascunho.
+     *
+     * **Publicar de novo nao produz efeito** (RN-PUB-005, RN-IDM-004): uma aula
+     * ja publicada devolve a si mesma, com o instante original preservado. A
+     * idempotencia mora aqui, e nao no caso de uso, para que ela valha por
+     * qualquer caminho que venha a publicar — e para que o instante da primeira
+     * publicacao nunca seja reescrito por uma segunda chamada.
+     */
+    public function publish(DateTimeImmutable $publishedAt): self
+    {
+        if (! $this->isDraft()) {
+            return $this;
+        }
+
+        return new self(
+            id: $this->id,
+            moduleId: $this->moduleId,
+            title: $this->title,
+            position: $this->position,
+            publishedAt: $publishedAt,
+            currentVideoAttemptId: $this->currentVideoAttemptId,
+        );
     }
 
     /**

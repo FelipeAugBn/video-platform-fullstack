@@ -35,9 +35,14 @@ final class ProblemDetails
     /**
      * @param  array<string, array<int, string>>|null  $errors  Erros por campo; apenas na validacao.
      * @param  array<string, string>  $headers  Cabecalhos que a resposta precisa preservar, ja filtrados na origem.
+     * @param  array<string, string|int|bool|null>  $extensions  Membros de extensao do RFC 9457, escolhidos pelo dominio.
      */
-    public static function response(Failure $failure, ?array $errors = null, array $headers = []): JsonResponse
-    {
+    public static function response(
+        Failure $failure,
+        ?array $errors = null,
+        array $headers = [],
+        array $extensions = [],
+    ): JsonResponse {
         $status = ProblemStatus::of($failure);
 
         $body = [
@@ -53,6 +58,15 @@ final class ProblemDetails
         // "nao e uma falha de validacao", que sao coisas diferentes.
         if ($errors !== null) {
             $body['errors'] = $errors;
+        }
+
+        // Extensoes entram **depois** dos campos do RFC e nao podem sobrescrever
+        // nenhum deles: um membro chamado `status` ou `code` mudaria o
+        // significado da resposta em vez de acrescentar informacao a ela.
+        foreach ($extensions as $nome => $valor) {
+            if (! array_key_exists($nome, $body)) {
+                $body[$nome] = $valor;
+            }
         }
 
         // O tipo de conteudo vem por ultimo e nao e negociavel: um cabecalho

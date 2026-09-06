@@ -57,8 +57,24 @@ final class ApiExceptionHandler
                 $e->errors(),
             ),
 
-            // Falha de regra de negocio: o caso ja veio escolhido do dominio.
-            $e instanceof DomainException => ProblemDetails::response($e->failure()),
+            // Falha de regra de negocio: o caso ja veio escolhido do dominio,
+            // junto com os membros de extensao que ele quis acrescentar. Nada
+            // disso vem da excecao bruta: `extensions()` e implementado por
+            // subclasses do dominio, que so podem devolver valores que elas
+            // mesmas escolheram.
+            //
+            // Cabecalhos nao entram por aqui. O unico caso da entrega que
+            // precisa de um — o `Retry-After` da falha transitoria do callback —
+            // e montado pelo proprio controller do webhook, que conhece a
+            // politica de reentrega daquela rota. Um metodo generico em
+            // `DomainException` seria uma porta aberta sem nenhum caso de
+            // dominio do outro lado.
+            $e instanceof DomainException => ProblemDetails::response(
+                $e->failure(),
+                null,
+                [],
+                $e->extensions(),
+            ),
 
             $e instanceof AuthenticationException => ProblemDetails::response(Failure::UNAUTHENTICATED),
             $e instanceof ModelNotFoundException => ProblemDetails::response(Failure::NOT_FOUND),

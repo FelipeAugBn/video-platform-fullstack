@@ -38,4 +38,27 @@ class DomainException extends RuntimeException
     {
         return $this->failure;
     }
+
+    /**
+     * Membros de extensao do corpo do problema (RFC 9457).
+     *
+     * Vazio por padrao, e quase sempre e o que se quer: o codigo do catalogo ja
+     * identifica a falha, e cada campo a mais e um campo que o contrato passa a
+     * manter. Uma subclasse o sobrescreve quando a regra exige informar algo
+     * **alem** de qual falha ocorreu — a recusa de um novo envio precisa dizer
+     * qual estado a impede (RF-UPL-011, AC-VID-011), e sem isso a interface
+     * teria de fazer uma segunda requisicao para descobrir.
+     *
+     * O que pode entrar aqui e o mesmo que ja poderia sair pela API por outro
+     * caminho: valor de enumeracao, identificador publico. Nunca texto vindo de
+     * excecao, driver ou servico externo — a garantia de RN-AUT-005 continua
+     * valendo, e continua valendo por construcao, porque o tipo de retorno so
+     * admite escalares e quem os escolhe e a subclasse do dominio.
+     *
+     * @return array<string, string|int|bool|null>
+     */
+    public function extensions(): array
+    {
+        return [];
+    }
 }

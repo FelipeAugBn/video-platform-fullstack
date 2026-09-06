@@ -125,6 +125,35 @@ final class Course
     }
 
     /**
+     * O curso passa a estar disponivel para consumo (RN-CUR-002).
+     *
+     * Acionado pela **primeira** publicacao de aula do curso, e nao por uma
+     * operacao propria: nao existe "publicar curso" nesta entrega, e o estado do
+     * curso e consequencia do conteudo dele (RF-PUB-003).
+     *
+     * Repetir nao produz efeito, pela mesma razao de `Lesson::publish()`: um
+     * curso ja `available` devolve a si mesmo. E o que permite ao caso de uso
+     * chamar este metodo a cada publicacao sem precisar perguntar antes se e a
+     * primeira — e o que faz duas publicacoes simultaneas nao produzirem escrita
+     * conflitante (plan §8.3).
+     */
+    public function makeAvailable(): self
+    {
+        if ($this->state === CourseState::AVAILABLE) {
+            return $this;
+        }
+
+        return new self(
+            id: $this->id,
+            ownerId: $this->ownerId,
+            title: $this->title,
+            description: $this->description,
+            state: CourseState::AVAILABLE,
+            createdAt: $this->createdAt,
+        );
+    }
+
+    /**
      * Responde se este curso pertence ao produtor informado.
      *
      * A comparacao vive no agregado, e nao espalhada em cada caso de uso, para

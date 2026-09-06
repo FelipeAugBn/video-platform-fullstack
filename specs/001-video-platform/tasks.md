@@ -1020,7 +1020,7 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
   - **Depende de:** T037.
   - **Critério de conclusão:** integração verde contra storage real.
 
-- [ ] **T043** Agregado `VideoAttempt` e o fluxo completo de upload
+- [x] **T043** Agregado `VideoAttempt` e o fluxo completo de upload
   - **Objetivo:** abrir o envio, emitir URLs de parte, concluir com verificação no
     servidor, consultar o estado e permitir novo envio depois de falha.
   - **Arquivos previstos:** `Video/Domain/VideoAttempt.php`,
@@ -1088,6 +1088,24 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
     interrompido permanecendo em `uploading` sem jamais alcançar `uploaded`; e
     todos os estados representados na consulta.
 
+    **Os desfechos da conclusão são afirmados um a um**, porque o estado não os
+    distingue: uma conclusão aceita agora e uma repetida terminam as duas em
+    `uploaded`, e só a primeira enfileira trabalho (plan §10.3).
+
+    | Situação | Resposta esperada no teste |
+    | --- | --- |
+    | Conclusão nova e válida | `202`, com **um** `ProcessVideoJob` despachado |
+    | Repetição de conclusão aceita, em `uploaded`, `processing` ou `ready` | `200`, sem job novo e sem chamada ao storage |
+    | Objeto ausente ou incompatível | `409` em `application/problem+json`, com o `code` gravado na tentativa |
+    | Repetição da recusa | o mesmo `409` e o mesmo `code`, sem nova ida ao storage |
+    | Conclusão sobre tentativa em `pending` | `409` com `VIDEO_UPLOAD_NOT_ACTIVE`, sem tocar no storage e sem enfileirar |
+    | Ausência de evidência sobre o objeto | `503`, com a tentativa preservada em `uploading` e sem `failure_code` |
+
+    Dois testes cobrem o que a forma da recusa protege: que o `failed` **fica
+    persistido** depois do `409` — uma rejeição lançada de dentro da transação o
+    desfaria junto —, e que um novo envio passa a ser aceito depois dela
+    (RF-UPL-005).
+
     **Mais um cenário, sobre falha de integração:** com a porta `ObjectStorage`
     substituída por uma que produz `StorageUnavailable`, a conclusão precisa
     deixar a tentativa **em `uploading`**, não iniciar processamento nenhum,
@@ -1114,7 +1132,7 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
 
 ## Fase 7 — Publicação
 
-- [ ] **T053** Publicação de aula e sua idempotência
+- [x] **T053** Publicação de aula e sua idempotência
   - **Objetivo:** publicar quando as condições são satisfeitas, de forma
     idempotente, coordenando três agregados.
   - **Arquivos previstos:** `Catalog/Application/PublishLesson/`, controller.
@@ -1148,7 +1166,7 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
 
 ## Fase 8 — Fila e processamento
 
-- [ ] **T055** Primeiro uso da fila: enfileiramento atômico e job de processamento
+- [x] **T055** Primeiro uso da fila: enfileiramento atômico e job de processamento
   - **Objetivo:** o primeiro trabalho assíncrono da aplicação, gravado na mesma
     transação que muda o estado e seguro para ser repetido.
   - **Arquivos previstos:**
@@ -1258,7 +1276,7 @@ vertical. Nenhum adapter é criado antes do agregado que ele persiste.
 O endpoint que o simulador vai chamar precisa existir **antes** do simulador. A
 fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
-- [ ] **T059** Endpoint de callback completo
+- [x] **T059** Endpoint de callback completo
   - **Objetivo:** a rota oficial validando origem, aplicando o evento
     atomicamente e sendo idempotente pelo `event_id`.
   - **Arquivos previstos:** rota `POST /api/webhooks/video-processing`,
@@ -1350,7 +1368,7 @@ fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 ## Fase 10 — Simulador
 
-- [ ] **T067** Simulador, cenário de falha e retomada do processamento
+- [x] **T067** Simulador, cenário de falha e retomada do processamento
   - **Objetivo:** o fornecedor externo simulado, chamando o callback real, com
     sucesso determinístico e falha acionável por comando.
   - **Arquivos previstos:** `Video/Infrastructure/Simulator/`, job da fila

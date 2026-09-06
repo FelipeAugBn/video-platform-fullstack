@@ -738,7 +738,7 @@ após falhas de rede e callbacks que chegam repetidos ou fora do fluxo esperado.
 | ID | Situação | Comportamento esperado |
 | --- | --- | --- |
 | **RF-ERR-001** | Transferência interrompida | O vídeo nunca é tratado como concluído: não avança para `uploaded` nem `ready`. Sem solicitação de conclusão, a tentativa permanece em `uploading` (RN-VID-005). A interface exibe a falha da transferência e não presume sucesso. A recuperação decidida em ABERTO-014 se limita à tentativa atual |
-| **RF-ERR-002** | Conclusão com objeto confirmadamente ausente ou incompatível | Quando o armazenamento **confirma de forma confiável** a ausência ou a incompatibilidade, o vídeo não avança para `uploaded`, o produtor recebe motivo compreensível (RF-UPL-009) e a tentativa passa para `failed` (RF-UPL-013). Quando a aplicação **não consegue avaliar** o objeto — indisponibilidade, credencial, permissão, assinatura, configuração ou resposta desconhecida —, não há evidência sobre ele: a tentativa permanece em `uploading`, nenhum processamento é iniciado e a resposta comunica falha de infraestrutura, deixando a conclusão repetível (RF-UPL-009) |
+| **RF-ERR-002** | Conclusão com objeto confirmadamente ausente ou incompatível | Quando o armazenamento **confirma de forma confiável** a ausência ou a incompatibilidade, o vídeo não avança para `uploaded`, o produtor recebe motivo compreensível (RF-UPL-009) e a tentativa passa para `failed` (RF-UPL-013). A resposta rejeita a operação em vez de aceitá-la, e carrega o motivo que ficou gravado na tentativa; a repetição da mesma conclusão devolve a mesma rejeição, com o mesmo motivo. A transição para `failed` é confirmada **antes** de a rejeição ser respondida — desfazê-la junto com um erro deixaria a tentativa presa em `uploading`, bloqueando o novo envio que RF-UPL-005 promete. Quando a aplicação **não consegue avaliar** o objeto — indisponibilidade, credencial, permissão, assinatura, configuração ou resposta desconhecida —, não há evidência sobre ele: a tentativa permanece em `uploading`, nenhum processamento é iniciado e a resposta comunica falha de infraestrutura, deixando a conclusão repetível (RF-UPL-009) |
 | **RF-ERR-003** | Conclusão repetida | Reconhecida sem duplicar processamento (RN-IDM-001) |
 | **RF-ERR-004** | Falha de processamento | O vídeo vai a `failed` com informação compreensível; a aula não se torna publicável |
 | **RF-ERR-005** | Nova tentativa após falha | Um novo envio substitui a tentativa em `failed` e cria uma nova tentativa em `pending` (RF-UPL-005). Enquanto a tentativa não estiver em `failed`, o novo envio é rejeitado (RF-UPL-011) |
@@ -890,6 +890,8 @@ Quando o cliente solicita a conclusão
 Então a conclusão é rejeitada
 E o vídeo não avança para `uploaded`
 E a tentativa passa para `failed` (RF-UPL-013)
+E a resposta é uma **rejeição da operação**, e não uma aceitação — o motivo gravado na tentativa é o mesmo que a resposta devolve
+E repetir a conclusão depois disso devolve a mesma rejeição, com o mesmo motivo, sem tocar no armazenamento de novo
 E o produtor recebe motivo compreensível
 
 **AC-VID-011 — novo envio é permitido após falha e bloqueado durante uma tentativa ativa**

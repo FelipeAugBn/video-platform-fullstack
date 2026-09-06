@@ -31,6 +31,24 @@ final class ProblemStatus
             Failure::METHOD_NOT_ALLOWED => 405,
             Failure::CSRF_TOKEN_MISMATCH => 419,
             Failure::CONFLICT => 409,
+
+            // Todo o bloco de video, publicacao e callback e conflito de regra:
+            // a requisicao esta bem formada e a operacao nao cabe no estado
+            // atual do recurso (plan §10.3).
+            Failure::VIDEO_ATTEMPT_ACTIVE,
+            Failure::VIDEO_UPLOAD_NOT_ACTIVE,
+            Failure::VIDEO_OBJECT_MISSING,
+            Failure::VIDEO_OBJECT_MISMATCH,
+            Failure::VIDEO_PROCESSING_FAILED,
+            Failure::WEBHOOK_EVENT_REJECTED,
+            Failure::LESSON_WITHOUT_VIDEO,
+            Failure::LESSON_VIDEO_NOT_READY,
+            Failure::LESSON_PLAYBACK_REFERENCE_MISSING => 409,
+
+            // Assinatura ausente, malformada, incorreta ou fora da janela. E
+            // `401` e nao `403`: o emissor nao se identificou de forma
+            // verificavel, e nao ha sessao a que recorrer (plan §13.4).
+            Failure::WEBHOOK_SIGNATURE_INVALID => 401,
             Failure::SERVICE_UNAVAILABLE => 503,
             Failure::INTERNAL_ERROR => 500,
         };

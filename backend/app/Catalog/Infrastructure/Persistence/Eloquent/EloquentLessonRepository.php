@@ -59,6 +59,21 @@ final class EloquentLessonRepository implements LessonRepository
         return $linha === null ? null : $this->paraDominio($linha);
     }
 
+    public function lockOwned(string $lessonId, string $ownerId): ?Lesson
+    {
+        $linha = $this->doDono($ownerId)
+            ->where('id', $lessonId)
+            // Trava apenas a linha de `lessons`. O recorte por dono vem de
+            // subconsultas `EXISTS` e nao de `JOIN` exatamente por isso: no
+            // MySQL, uma leitura travada nao propaga a trava para as linhas da
+            // subconsulta, enquanto um `JOIN` travaria tambem modulo e curso — e
+            // publicar uma aula passaria a serializar o curso inteiro.
+            ->lockForUpdate()
+            ->first();
+
+        return $linha === null ? null : $this->paraDominio($linha);
+    }
+
     public function nextPosition(string $moduleId): int
     {
         $maior = LessonModel::query()

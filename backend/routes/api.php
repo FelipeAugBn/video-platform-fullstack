@@ -6,6 +6,9 @@ use App\Catalog\Interfaces\Http\Controller\CourseController;
 use App\Catalog\Interfaces\Http\Controller\LessonController;
 use App\Catalog\Interfaces\Http\Controller\ModuleController;
 use App\Identity\Interfaces\Http\Controller\AuthController;
+use App\Video\Infrastructure\Webhook\VerifyWebhookSignature;
+use App\Video\Interfaces\Http\Controller\ProcessingCallbackController;
+use App\Video\Interfaces\Http\Controller\VideoUploadController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -114,4 +117,78 @@ Route::middleware(['auth:sanctum', 'role:producer'])->group(function (): void {
     Route::get('lessons/{lesson}', [LessonController::class, 'show'])
         ->whereUuid('lesson')
         ->name('lessons.show');
+
+    /*
+    | Publicacao da aula.
+    |
+    | `POST`, e nao `PUT` sobre um campo: publicar e uma acao explicita do
+    | produtor com regra propria — exige video pronto e referencia de reproducao
+    | presentes (RN-PUB-006) —, e nao a atribuicao de um valor. Um `PATCH` que
+    | aceitasse `published_at` convidaria o cliente a escolher o instante.
+    |
+    | Nao existe rota para despublicar: ela nao esta no desafio, e uma rota
+    | declarada sem caso de uso e superficie exposta sem comportamento definido.
+    */
+    Route::post('lessons/{lesson}/publish', [LessonController::class, 'publish'])
+        ->whereUuid('lesson')
+        ->name('lessons.publish');
+
+    /*
+    | Envio de video.
+    |
+    | Duas rotas entram pela **aula** e duas pela **tentativa**, e a diferenca
+    | nao e estilistica. Abrir um envio e consultar o estado sao operacoes sobre
+    | a aula: quem as chama sabe qual aula quer, e nao qual tentativa existe.
+    | Pedir a URL de uma parte e concluir sao operacoes sobre a tentativa, que ja
+    | foi identificada na resposta da abertura — enderecá-las pela aula obrigaria
+    | o servidor a redescobrir a tentativa atual a cada parte, e uma substituicao
+    | no meio do envio faria as partes seguintes irem para o objeto errado.
+    |
+    | As quatro exigem sessao e perfil de produtor, herdados deste grupo, e as
+    | quatro resolvem a propriedade dentro da consulta.
+    |
+    | **Nao ha rota que receba bytes.** O conteudo vai do navegador direto ao
+    | armazenamento, com as URLs pre-assinadas que a rota de parte emite — e e
+    | assim que RNF-001 e AC-VID-001 sao atendidos.
+    */
+    Route::post('lessons/{lesson}/video/uploads', [VideoUploadController::class, 'store'])
+        ->whereUuid('lesson')
+        ->name('lessons.video.uploads.store');
+
+    Route::get('lessons/{lesson}/video', [VideoUploadController::class, 'show'])
+        ->whereUuid('lesson')
+        ->name('lessons.video.show');
+
+    // O numero da parte e restrito a digitos pelo roteador. Um valor nao
+    // numerico recebe o mesmo `404` de rota inexistente, antes de qualquer
+    // codigo da aplicacao rodar — e a conversao no controller deixa de poder
+    // esconder entrada invalida.
+    Route::post('video-uploads/{attempt}/parts/{part}/url', [VideoUploadController::class, 'partUrl'])
+        ->whereUuid('attempt')
+        ->whereNumber('part')
+        ->name('video-uploads.parts.url');
+
+    Route::post('video-uploads/{attempt}/complete', [VideoUploadController::class, 'complete'])
+        ->whereUuid('attempt')
+        ->name('video-uploads.complete');
 });
+
+/*
+| Callback de processamento — a rota nomeada literalmente pelo desafio.
+|
+| **Fora do grupo autenticado, e de proposito.** O emissor e um servico, nao um
+| navegador: nao ha sessao a validar, nao ha perfil a exigir e nao ha token CSRF
+| a conferir. Exigir `auth:sanctum` aqui obrigaria o simulador a manter uma
+| sessao de usuario, que e exatamente o que um provedor externo nao tem.
+|
+| O que substitui a sessao e a assinatura HMAC, conferida pelo middleware antes
+| do controller: sem ela, ou fora da janela de cinco minutos, a requisicao recebe
+| `401` sem produzir efeito (RF-WHK-001, plan §13.4).
+|
+| A dispensa de CSRF e declarada tambem na inicializacao da aplicacao, com o
+| endereco explicito. Depender apenas de a origem nao ser reconhecida como
+| first-party seria depender de um cabecalho que quem chama controla.
+*/
+Route::post('webhooks/video-processing', ProcessingCallbackController::class)
+    ->middleware(VerifyWebhookSignature::class)
+    ->name('webhooks.video-processing');

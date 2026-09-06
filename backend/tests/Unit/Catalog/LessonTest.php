@@ -207,18 +207,60 @@ final class LessonTest extends TestCase
         $this->assertNotContains('currentVideoState', $propriedades);
     }
 
-    public function test_a_publicacao_nao_e_implementada_nesta_etapa(): void
+    public function test_publicar_marca_o_instante_e_deixa_de_ser_rascunho(): void
     {
-        // Publicar exige video pronto e referencia de reproducao presentes, e o
-        // agregado de video ainda nao existe. Um metodo declarado agora decidiria
-        // sem os dados, e nao teria teste que o corrigisse.
-        $metodos = array_map(
-            fn (\ReflectionMethod $m): string => strtolower($m->getName()),
-            (new ReflectionClass(Lesson::class))->getMethods(),
+        $instante = new DateTimeImmutable('2026-09-06T10:00:00+00:00');
+
+        $publicada = Lesson::create(self::ID, self::MODULO, 'Primeiros passos', 1)->publish($instante);
+
+        $this->assertFalse($publicada->isDraft());
+        $this->assertEquals($instante, $publicada->publishedAt());
+    }
+
+    public function test_publicar_de_novo_preserva_o_instante_original(): void
+    {
+        // A idempotencia mora no agregado, e nao no caso de uso: assim ela vale
+        // por qualquer caminho que venha a publicar, e o instante da primeira
+        // publicacao nunca e reescrito por uma segunda chamada (RN-PUB-005).
+        $primeira = new DateTimeImmutable('2026-09-06T10:00:00+00:00');
+        $segunda = new DateTimeImmutable('2026-09-07T10:00:00+00:00');
+
+        $publicada = Lesson::create(self::ID, self::MODULO, 'Primeiros passos', 1)->publish($primeira);
+        $republicada = $publicada->publish($segunda);
+
+        $this->assertEquals($primeira, $republicada->publishedAt());
+    }
+
+    public function test_o_agregado_nao_decide_se_o_video_permite_publicar(): void
+    {
+        // `publish()` nao recebe estado de video, e nao poderia: a tentativa e
+        // outro agregado, e a aula guarda so o identificador dela. Quem verifica
+        // se o video esta `ready` com referencia e o caso de uso, que coordena os
+        // tres sob trava (plan §6.1).
+        $parametros = array_map(
+            fn (\ReflectionParameter $p): string => $p->getName(),
+            (new ReflectionClass(Lesson::class))->getMethod('publish')->getParameters(),
         );
 
-        $this->assertNotContains('publish', $metodos);
-        $this->assertNotContains('publicar', $metodos);
+        $this->assertSame(['publishedAt'], $parametros);
+    }
+
+    public function test_apontar_para_uma_tentativa_substitui_a_anterior(): void
+    {
+        $comVideo = Lesson::create(self::ID, self::MODULO, 'Primeiros passos', 1)->attachVideoAttempt('01936f1a-7c00-7a3e-9b7d-000000000001');
+        $substituida = $comVideo->attachVideoAttempt('01936f1a-7c00-7a3e-9b7d-000000000002');
+
+        // No maximo **uma** tentativa atual (RF-AUL-005): apontar para a nova nao
+        // acumula, e a assinatura de um unico identificador torna isso verdade
+        // por construcao.
+        $this->assertSame('01936f1a-7c00-7a3e-9b7d-000000000002', $substituida->currentVideoAttemptId());
+    }
+
+    public function test_apontar_para_uma_tentativa_nao_publica_a_aula(): void
+    {
+        $this->assertTrue(
+            Lesson::create(self::ID, self::MODULO, 'Primeiros passos', 1)->attachVideoAttempt('01936f1a-7c00-7a3e-9b7d-000000000001')->isDraft(),
+        );
     }
 
     public function test_o_agregado_e_imutavel_e_so_nasce_pelas_duas_fabricas(): void
