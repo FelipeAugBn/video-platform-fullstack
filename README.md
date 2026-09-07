@@ -34,7 +34,13 @@ precisa estar instalado.
 ### Jornada do produtor
 
 Autenticar, criar cursos, montar a árvore de módulos e aulas, enviar o vídeo de
-uma aula, acompanhar o processamento até o fim e publicar.
+uma aula, acompanhar o processamento até o fim, conferir o vídeo pronto e
+publicar.
+
+A conferência acontece na própria seção da aula: com o vídeo em `ready`, o
+produtor assiste ao que enviou antes de decidir publicar, e isso vale com a aula
+ainda em rascunho — do lado de quem produz, a regra é propriedade, e não
+concessão mais publicação.
 
 A ordem de módulos e aulas é definida e preservada pelo servidor: cada item novo
 entra na próxima posição livre do seu pai, e o formulário nem tem esse campo. Um
@@ -63,7 +69,7 @@ seleção do arquivo
                   └─ o trabalho vai para a fila e sai da requisição HTTP
                        └─ o simulador representa o provedor externo
                             └─ e devolve o desfecho por webhook HTTP assinado
-                                 └─ o vídeo chega a `ready` e a aula pode publicar
+                                 └─ o vídeo chega a `ready`, o produtor confere e publica
                                       └─ o consumidor recebe uma URL assinada e assiste
 ```
 
@@ -439,9 +445,19 @@ poucas vezes por vídeo. *(plan §15.2)*
 ### Reprodução
 
 Objeto **privado** no armazenamento e URL `GET` pré-assinada de **cinco
-minutos**, emitida somente depois de quatro verificações: consumidor autenticado,
-concessão para o curso, aula publicada e vídeo `ready`. A API devolve dados de
-reprodução, nunca o arquivo. *(plan §14)*
+minutos**, emitida somente depois da autorização. A API devolve dados de
+reprodução, nunca o arquivo.
+
+São **dois endpoints**, e não um com desvio por perfil. Eles divergem em três
+coisas, e as três são a política de acesso: o perfil exigido, a base da
+autorização — concessão do lado do consumidor, propriedade do lado do produtor —
+e a exigência de publicação, que só vale para o consumidor.
+
+Fora daí é tudo o mesmo, e de propósito: a mesma exigência de vídeo `ready` com
+referência, a mesma emissão da URL, o mesmo prazo, a mesma porta de
+armazenamento, a mesma tradução de falha ao assinar e o mesmo formato de
+resposta. Dois endpoints e duas autorizações; um único lugar que assina.
+*(plan §14)*
 
 ---
 

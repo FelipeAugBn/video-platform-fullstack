@@ -96,7 +96,9 @@ tags:
   - name: Catalogo do produtor
     description: Cursos, modulos, aulas e a arvore do curso — sempre restritos ao proprietario.
   - name: Video
-    description: Abertura do envio, URLs de parte, conclusao e estado do processamento.
+    description: >-
+      Abertura do envio, URLs de parte, conclusao, estado do processamento e a
+      conferencia do video pronto pelo produtor proprietario.
   - name: Catalogo do consumidor
     description: Cursos concedidos, navegacao do conteudo publicado e reproducao.
   - name: Webhook
@@ -1003,6 +1005,126 @@ paths:
           $ref: "#/components/responses/PerfilNegado"
         "404":
           $ref: "#/components/responses/NaoEncontrado"
+        "500":
+          $ref: "#/components/responses/ErroInterno"
+
+  /api/lessons/{lesson}/video/playback:
+    get:
+      tags: [Video]
+      operationId: obterReproducaoDoProdutor
+      summary: Dados de reproducao do proprio video
+      description: |
+        Permite ao **produtor proprietario** conferir o video que enviou, antes
+        de decidir publicar a aula.
+
+        Duas verificacoes, nesta ordem: propriedade da aula, resolvida dentro da
+        consulta pela cadeia `lesson -> module -> course -> owner_id`; e video em
+        `ready` com referencia registrada. **A URL so e assinada depois das
+        duas** — nenhum caminho negativo chega ao armazenamento.
+
+        **A publicacao nao participa da decisao.** Aula em rascunho e aula
+        publicada respondem igual, e o rascunho e justamente o caso que motiva a
+        operacao: conferir o conteudo faz parte de decidir se ele deve ser
+        publicado.
+
+        E uma operacao distinta de `GET /api/lessons/{lesson}/playback`, e nao
+        uma variacao dela. O que difere entre as duas e a **politica de
+        acesso**: la a exigencia e perfil de consumidor, concessao ao curso e
+        aula publicada; aqui e perfil de produtor e propriedade da aula. Um
+        endereco unico obrigaria a operacao a escolher essa politica pelo perfil
+        de quem chamou.
+
+        Fora da politica, os dois caminhos sao o mesmo: a mesma exigencia de
+        video em `ready` com referencia registrada, a mesma emissao da URL, o
+        mesmo prazo de cinco minutos, a mesma traducao de falha ao assinar e o
+        mesmo formato de resposta. Sao dois endpoints e duas autorizacoes, com
+        um unico ponto de implementacao que assina a URL.
+
+        O retorno sao **dados de reproducao, nunca o arquivo**: uma URL `GET`
+        pre-assinada valida por **cinco minutos**, o instante exato em que ela
+        expira e o tipo do conteudo. Os bytes vao do armazenamento direto ao
+        player.
+
+        **Limitacao assumida:** a mesma da reproducao do consumidor — a URL
+        funciona ate expirar e pode ser copiada. Cinco minutos reduzem, nao
+        eliminam, a redistribuicao.
+      parameters:
+        - $ref: "#/components/parameters/AulaId"
+      responses:
+        "200":
+          description: Dados de reproducao do video atual da aula.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReproducaoEnvelope"
+              examples:
+                reproducao:
+                  value:
+                    data:
+                      playback_url: https://storage.exemplo.test/videos/exemplo/original.mp4?assinatura=REDIGIDO
+                      expires_at: "2026-09-06T12:05:00+00:00"
+                      content_type: video/mp4
+        "401":
+          $ref: "#/components/responses/NaoAutenticado"
+        "403":
+          $ref: "#/components/responses/PerfilNegado"
+        "404":
+          description: |
+            A aula nao existe ou pertence a outro produtor. As duas respostas sao
+            **indistinguiveis**: separa-las permitiria descobrir, por varredura
+            de identificadores, o que existe no catalogo alheio.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problema"
+              examples:
+                indistinguivel:
+                  value:
+                    type: https://api.example.test/problems/not-found
+                    title: Recurso nao encontrado
+                    status: 404
+                    detail: O recurso solicitado nao existe ou nao esta disponivel.
+                    code: NOT_FOUND
+        "409":
+          description: |
+            A aula e desta pessoa, e nao ha o que reproduzir.
+            `LESSON_VIDEO_NOT_READY` cobre os tres casos: aula sem tentativa
+            atual, tentativa fora de `ready` e tentativa pronta sem referencia
+            registrada. O estado em detalhe fica na consulta de video, que e
+            outra operacao.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problema"
+              examples:
+                videoNaoPronto:
+                  value:
+                    type: https://api.example.test/problems/lesson-video-not-ready
+                    title: Video ainda nao esta pronto
+                    status: 409
+                    detail: O video desta aula ainda nao esta pronto para reproducao.
+                    code: LESSON_VIDEO_NOT_READY
+        "503":
+          description: |
+            A autorizacao passou, mas **a assinatura da URL falhou** —
+            credencial, configuracao ou indisponibilidade do armazenamento.
+
+            Nada da falha original atravessa: nem a excecao, nem o provedor, nem
+            a chave do objeto. Quem chamou recebe a mesma indisponibilidade
+            temporaria de qualquer outro erro de infraestrutura, e pode repetir a
+            requisicao.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problema"
+              examples:
+                indisponivel:
+                  value:
+                    type: https://api.example.test/problems/service-unavailable
+                    title: Servico temporariamente indisponivel
+                    status: 503
+                    detail: Tente novamente em alguns instantes.
+                    code: SERVICE_UNAVAILABLE
         "500":
           $ref: "#/components/responses/ErroInterno"
 

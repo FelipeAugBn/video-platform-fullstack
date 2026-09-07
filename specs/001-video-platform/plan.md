@@ -1054,6 +1054,7 @@ reconduz à autenticação, o outro não tem saída pela mesma sessão.
 | `POST /api/video-uploads/{attempt}/parts/{n}/url` | producer | `200` URL de parte |
 | `POST /api/video-uploads/{attempt}/complete` | producer | `202`, `200`, `409` ou `503` |
 | `GET /api/lessons/{lesson}/video` | producer | `200` estado da tentativa atual |
+| `GET /api/lessons/{lesson}/video/playback` | producer | `200` dados de reprodução do próprio vídeo, publicada ou não |
 | `POST /api/lessons/{lesson}/publish` | producer | `200` |
 | `GET /api/catalog/courses` | consumer | `200` paginado, apenas concedidos e `available` |
 | `GET /api/catalog/courses/{course}` | consumer | `200` árvore só com aulas publicadas |
@@ -1064,18 +1065,29 @@ As duas rotas nomeadas pelo desafio — `POST /api/webhooks/video-processing` e
 `GET /api/lessons/{lesson}/playback` — são preservadas literalmente.
 
 **A tabela acima é a superfície inteira**, mais `GET /up`, que fica fora do
-contrato por ser sinal de prontidão e não operação de negócio (§18.2). São 21
-operações documentadas e 22 registradas — `HEAD` não entra na contagem porque o
-roteador o deriva de cada `GET`, e não porque seja recusado. Não há rota de
-leitura ou escrita sobre o sistema de arquivos local: a opção que as registraria
-automaticamente está desligada (§11.1).
+contrato por ser sinal de prontidão e não operação de negócio (§18.2). Não há
+rota de leitura ou escrita sobre o sistema de arquivos local: a opção que as
+registraria automaticamente está desligada (§11.1).
+
+| Contagem | Valor |
+| --- | --- |
+| Operações no `openapi.yaml` | 22 |
+| Operações registradas, contando `GET /up` | 23 |
+| `GET` declarados | 13 |
+| `POST` declarados | 10 |
+| `HEAD` derivados | 13 |
+| Pares método-endereço aceitos, incluindo `HEAD` | 36 |
+
+`HEAD` fica fora do inventário de decisões porque o roteador o deriva de cada
+`GET`, e não porque seja recusado — a aplicação responde a ele normalmente, e o
+teste de superfície afirma essa derivação em voz alta.
 
 Duas verificações distintas sustentam isso, e vale não confundi-las:
 
 | O quê | Como | Quando |
 | --- | --- | --- |
 | As rotas registradas são exatamente uma lista fechada | Teste automatizado, por igualdade contra uma *allowlist* escrita no próprio teste | Toda execução da suíte |
-| Essa lista corresponde às 21 operações do `openapi.yaml` | Conferência manual, na revisão | Sempre que um dos dois lados mudar |
+| Essa lista corresponde às 22 operações do `openapi.yaml` | Conferência manual, na revisão | Sempre que um dos dois lados mudar |
 | O documento OpenAPI é válido e seus exemplos batem com os schemas | `make openapi-lint` | Localmente e na pipeline |
 
 O teste **não lê** o contrato, e isso é deliberado: um mecanismo cruzando os dois
@@ -1579,10 +1591,8 @@ curso, o curso passa a `available` na mesma transação.
 
 ### 14.2 Reprodução
 
-`GET /api/lessons/{lesson}/playback`. A forma de disponibilizar o conteúdo é
-escolha nossa: objeto privado no storage e URL `GET` pré-assinada de curta
-duração, emitida **somente após** as quatro verificações — consumidor
-autenticado, concessão para o curso, aula publicada, vídeo `ready`.
+A forma de disponibilizar o conteúdo é escolha nossa: objeto privado no storage e
+URL `GET` pré-assinada de curta duração, emitida **somente após** a autorização.
 
 Escolhemos URL pré-assinada em vez de bucket público ou proxy pelo Laravel porque
 mantém o objeto privado sem fazer a aplicação transmitir os bytes: a API
@@ -1591,7 +1601,7 @@ autoriza e entrega uma permissão curta, o storage entrega o conteúdo.
 | Parâmetro | Valor |
 | --- | --- |
 | Validade | 5 minutos |
-| Método | `GET` sobre a chave da tentativa `ready` |
+| Método | `GET` sobre a `playback_reference` da tentativa `ready` |
 
 ```json
 { "data": { "playback_url": "https://...", "expires_at": "...", "content_type": "video/mp4" } }
@@ -1599,14 +1609,96 @@ autoriza e entrega uma permissão curta, o storage entrega o conteúdo.
 
 O retorno são dados de reprodução, não o arquivo (RF-PLB-005).
 
-**Limitação assumida:** a URL pode ser copiada e funciona até expirar. Cinco
-minutos reduzem, não eliminam, redistribuição. Mitigar de fato exigiria cookies
-assinados, tokens por sessão de player ou DRM — fora do escopo (seção 19).
+#### Duas operações, duas políticas
+
+São **dois endpoints**, e não um com ramificação por perfil. A tabela separa o
+que diverge do que é compartilhado — e a segunda metade é maior que a primeira:
+
+| | `GET /api/lessons/{lesson}/playback` | `GET /api/lessons/{lesson}/video/playback` |
+| --- | --- | --- |
+| **Perfil** | `consumer` | `producer` |
+| **Autorização** | concessão de acesso ao curso | propriedade da aula |
+| **Publicação** | exigida | indiferente |
+| Negativa de acesso | `404` | `404` |
+| Disponibilidade do vídeo | `ready` com referência | *idem* |
+| Emissão da URL | `IssuePlayback` | *idem* |
+| Porta de armazenamento | `ObjectStorage` | *idem* |
+| Prazo | 5 minutos | *idem* |
+| Falha ao assinar | `503` `SERVICE_UNAVAILABLE` | *idem* |
+| Formato da resposta | `Playback` / `PlaybackResource` | *idem* |
+| Requisito | RF-PLB-001 a 008 | RF-PLB-009, AC-PROD-008 |
+
+Em negrito, as três linhas que divergem — e são as três que compõem a política de
+acesso. Todo o resto é o mesmo, e é o mesmo **por construção**, não por
+coincidência: há dois endpoints e dois casos de uso de autorização, mas um único
+ponto de implementação que assina a URL.
+
+O primeiro é a rota nomeada literalmente pelo desafio, preservada como está
+escrita lá. O segundo existe porque quem envia um vídeo precisa conferir o
+resultado antes de decidir publicar, e o primeiro não serve a isso: ele exige
+concessão e aula publicada — duas condições que o produtor não cumpre sobre o
+próprio rascunho.
+
+**Por que não um endpoint só.** Um mesmo endereço servindo os dois obrigaria a
+operação a escolher a regra de autorização pelo perfil de quem chamou, no ponto
+exato em que a aplicação assina uma credencial temporária. É o mesmo motivo pelo
+qual o catálogo do consumidor vive sob `catalog/` em vez de dividir
+`GET /api/courses` com o produtor (§10.4): coleções com regras de acesso
+diferentes não compartilham endereço. Também não se cogitou entregar a URL dentro
+da estrutura do curso ou do polling do vídeo — seria emitir credencial assinada
+sem alguém ter pedido, e renová-la a cada ciclo de consulta.
+
+**Conferir o próprio vídeo é operação de gestão, não de consumo.** RN-AUT-001
+continua valendo integralmente: o produtor não passa a acessar catálogo alheio, e
+o consumidor continua sem alcançar rascunho.
+
+#### A emissão é compartilhada, a autorização não
+
+Depois de a autorização estar resolvida, os dois caminhos convergem numa única
+colaboração de Application — `IssuePlayback`. Ela localiza a tentativa atual da
+aula, exige que seja reproduzível, assina a URL pela porta `ObjectStorage` com o
+mesmo `url_ttl` de cinco minutos, converte falha de storage em
+`SERVICE_UNAVAILABLE` e devolve o mesmo objeto de resultado.
+
+O que ela deliberadamente **não** faz é autorizar. Cada caso de uso decide antes
+de chamá-la: o do consumidor confere concessão e publicação, o do produtor
+confere propriedade por `LessonRepository::findOwned`. Copiar o trecho de
+assinatura em vez de extraí-lo faria os dois perfis divergirem no primeiro ajuste
+de prazo, sem que nada avisasse; fundir as políticas dentro dela reintroduziria o
+`if` por perfil que a separação dos endpoints existe para evitar.
+
+A composição das dependências e do TTL continua no `AppServiceProvider`, e o
+registro é um só — um prazo declarado duas vezes teria como divergir.
+
+#### Negativas
 
 A URL assinada não substitui autorização: ela é emitida depois dela. Falha de
-concessão devolve `404`; aula não publicada ou vídeo fora de `ready` devolve `409`
-com `code` distinto, porque a interface precisa separar "não é para você" de
-"ainda não está pronto" (RF-PLB-007, RF-UI-015).
+concessão ou de propriedade devolve `404`; aula não publicada, no caminho do
+consumidor, e vídeo fora de `ready` nos dois devolvem `409` com `code` distinto,
+porque a interface precisa separar "não é para você" de "ainda não está pronto"
+(RF-PLB-007, RF-UI-015). Perfil errado devolve `403`, antes de qualquer consulta.
+
+#### Na interface
+
+Do lado do consumidor, a reprodução é a própria página da aula. Do lado do
+produtor, ela é **inline** no item da aula dentro da estrutura do curso, entre o
+painel do vídeo e a ação de publicar — a ordem na tela é a ordem da decisão. A
+ação só aparece com o vídeo em `ready`, não depende de `published_at`, e a URL só
+é pedida no clique: emitir uma por aula pronta ao abrir a árvore gastaria uma leva
+de credenciais de cinco minutos que ninguém pediu. O componente de player é o
+mesmo dos dois lados.
+
+**O E2E não foi ampliado.** A jornada existente já atravessa URL assinada e
+elemento `<video>` pelo lado do consumidor, e o que a operação do produtor
+acrescenta — autorização por propriedade, independência de publicação e
+apresentação inline — é afirmado por teste de feature no backend e de componente
+no frontend, com menos custo e menos instabilidade do que um segundo percurso em
+navegador (§17.3).
+
+**Limitação assumida:** a URL pode ser copiada e funciona até expirar, nos dois
+caminhos. Cinco minutos reduzem, não eliminam, redistribuição. Mitigar de fato
+exigiria cookies assinados, tokens por sessão de player ou DRM — fora do escopo
+(seção 19).
 
 ---
 
@@ -1646,7 +1738,7 @@ app/
     pages/
         login.vue
         producer/courses/index.vue        lista e criacao
-        producer/courses/[id].vue         estrutura, modulos, aulas, upload, publicacao
+        producer/courses/[id].vue         estrutura, modulos, aulas, upload, conferencia, publicacao
         catalog/index.vue                 cursos concedidos
         catalog/courses/[id].vue          navegacao do consumidor
         catalog/lessons/[id].vue          reproducao
@@ -1815,11 +1907,14 @@ recurso alheio indistinguível de inexistente; abertura de upload e conclusão
 válida e inválida; conclusão repetida sem processamento duplicado; assinatura HMAC
 inválida; callback de sucesso e de falha; callback duplicado sem efeito duplicado;
 evento fora do estado esperado sem regressão; publicação bloqueada antes de
-`ready` e publicação idempotente; reprodução autorizada e negada.
+`ready` e publicação idempotente; reprodução autorizada e negada nos dois
+caminhos — o do consumidor, por concessão e publicação, e o do produtor, por
+propriedade e independente de publicação.
 
 No frontend: ao menos um formulário com sucesso, validação e erro; sessão
 expirada; API indisponível; upload com progresso; falha de transferência que não
 conclui nem apresenta o vídeo como pronto; vídeo processando, pronto e com falha;
+conferência do próprio vídeo sob demanda, sem requisição antes do clique;
 conteúdo indisponível ou não autorizado.
 
 **Idempotência e concorrência não são a mesma prova, e este plano não as

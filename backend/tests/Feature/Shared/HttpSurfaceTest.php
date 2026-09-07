@@ -32,7 +32,7 @@ use Tests\TestCase;
  * escrita a mao neste arquivo.
  *
  * **Nao prova:** que essa lista corresponde ao `docs/openapi.yaml`. Nada aqui le
- * o contrato. A correspondencia entre as 21 operacoes documentadas e as 21
+ * o contrato. A correspondencia entre as 22 operacoes documentadas e as 22
  * operacoes desta lista foi conferida **manualmente**, na revisao final, e e
  * reconferida sempre que uma das duas mudar.
  *
@@ -42,7 +42,7 @@ use Tests\TestCase;
  * Quem valida o documento em si e `make openapi-lint`, que roda separado, na
  * pipeline e localmente.
  *
- * A vigesima segunda operacao e `GET /up`, fora do contrato de proposito: e o
+ * A vigesima terceira operacao e `GET /up`, fora do contrato de proposito: e o
  * sinal de prontidao consultado pelo healthcheck do servico `web`, e nao uma
  * operacao de negocio (plan §§16.2 e 18.2).
  *
@@ -98,11 +98,13 @@ final class HttpSurfaceTest extends TestCase
         'GET /api/lessons/{lesson}',
         'POST /api/lessons/{lesson}/publish',
 
-        // Envio de video.
+        // Video do produtor: o envio, a consulta de estado e a conferencia do
+        // que ficou pronto.
         'POST /api/lessons/{lesson}/video/uploads',
         'POST /api/video-uploads/{attempt}/parts/{part}/url',
         'POST /api/video-uploads/{attempt}/complete',
         'GET /api/lessons/{lesson}/video',
+        'GET /api/lessons/{lesson}/video/playback',
 
         // Consumo.
         'GET /api/catalog/courses',
@@ -138,12 +140,12 @@ final class HttpSurfaceTest extends TestCase
      * A prontidao e a **unica** operacao fora do prefixo da API e da sessao.
      *
      * Este teste nao consulta o `docs/openapi.yaml` — nada nesta classe consulta.
-     * Ele afirma a forma da superficie: 22 operacoes, das quais exatamente uma
+     * Ele afirma a forma da superficie: 23 operacoes, das quais exatamente uma
      * fica fora de `/api` e de `/sanctum`, e essa uma e `GET /up`.
      *
-     * As 21 restantes correspondem, uma a uma, as operacoes do contrato. Essa
-     * correspondencia foi conferida **a mao** na revisao final; nao ha mecanismo
-     * automatico ligando os dois lados, por decisao registrada em plan §10.5.
+     * As 22 restantes correspondem, uma a uma, as operacoes do contrato. Essa
+     * correspondencia foi conferida **a mao**; nao ha mecanismo automatico
+     * ligando os dois lados, por decisao registrada em plan §10.5.
      */
     public function test_a_prontidao_e_a_unica_operacao_fora_da_api_e_da_sessao(): void
     {
@@ -156,7 +158,7 @@ final class HttpSurfaceTest extends TestCase
         ));
 
         $this->assertSame(['GET /up'], $foraDaApi);
-        $this->assertCount(22, $registradas);
+        $this->assertCount(23, $registradas);
     }
 
     /**
@@ -190,14 +192,28 @@ final class HttpSurfaceTest extends TestCase
      * Sem este teste, a exclusao de `HEAD` do inventario poderia ser lida como
      * "a aplicacao nao aceita `HEAD`" — o que seria falso, e faria a proxima
      * pessoa procurar um bloqueio que nao existe.
+     *
+     * A contagem entra junto porque e ela que fecha a aritmetica da superficie:
+     * 13 `GET` e 10 `POST` declarados, mais os 13 `HEAD` que o roteador deriva,
+     * dao os 36 pares metodo-endereco que a aplicacao aceita.
      */
     public function test_o_head_acompanha_cada_get(): void
     {
         $semHead = [];
+        $gets = 0;
+        $heads = 0;
 
         foreach (Route::getRoutes()->getRoutes() as $rota) {
             /** @var RotaRegistrada $rota */
             $metodos = $rota->methods();
+
+            if (in_array('GET', $metodos, true)) {
+                $gets++;
+            }
+
+            if (in_array('HEAD', $metodos, true)) {
+                $heads++;
+            }
 
             if (in_array('GET', $metodos, true) && ! in_array('HEAD', $metodos, true)) {
                 $semHead[] = (string) $rota->uri();
@@ -205,6 +221,8 @@ final class HttpSurfaceTest extends TestCase
         }
 
         $this->assertSame([], $semHead);
+        $this->assertSame(13, $gets);
+        $this->assertSame($gets, $heads);
     }
 
     // -----------------------------------------------------------------------
@@ -276,6 +294,7 @@ final class HttpSurfaceTest extends TestCase
         yield 'login' => ['POST /api/auth/login'];
         yield 'catalogo do consumidor' => ['GET /api/catalog/courses'];
         yield 'reproducao' => ['GET /api/lessons/{lesson}/playback'];
+        yield 'conferencia do produtor' => ['GET /api/lessons/{lesson}/video/playback'];
         yield 'callback' => ['POST /api/webhooks/video-processing'];
     }
 

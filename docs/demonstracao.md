@@ -193,7 +193,26 @@ multipart, então a transferência acontece numa única parte.
    segundos. Nada é clicado nesse intervalo: a tela consulta o estado a cada 3
    segundos e para sozinha ao chegar num estado terminal.
 
-7. **Publicar.** Clique em **Publicar aula**.
+7. **Conferir o vídeo — opcional.** Com **Video pronto** na tela, clique em
+   **Visualizar video**.
+
+   O player abre **na própria aula**, sem sair da estrutura do curso, e carrega
+   o arquivo que acabou de ser enviado. É o produtor conferindo o resultado
+   antes de decidir publicar — e funciona com a aula ainda em **Rascunho**,
+   porque aqui a regra é propriedade, e não concessão mais publicação.
+
+   Com o fixture de 1,7 KB sugerido acima há pouco o que assistir; com um MP4 de
+   verdade, o vídeo toca normalmente.
+
+   A URL só é pedida no clique, e vale cinco minutos como a do consumidor. É
+   outro endereço, com outra regra: `GET /api/lessons/{lesson}/video/playback`.
+   A rota nomeada pelo desafio continua sendo a do consumidor, exigindo o que
+   sempre exigiu.
+
+   O passo é opcional: pular direto para a publicação não muda nada do que vem
+   depois.
+
+8. **Publicar.** Clique em **Publicar aula**.
 
    Duas coisas mudam ao mesmo tempo: a aula passa a **publicada**, e o curso
    deixa de ser **Rascunho** e passa a **Disponivel** — é a primeira publicação
@@ -203,25 +222,25 @@ multipart, então a transferência acontece numa única parte.
    o backend recusaria a operação de qualquer forma, com um conflito de regra.
    Esconder é conveniência de tela; quem decide é o servidor.
 
-8. **Sair.** Clique em **Sair**, na barra de sessão.
+9. **Sair.** Clique em **Sair**, na barra de sessão.
 
    É o backend que invalida a sessão; a interface volta ao login.
 
 ### Como consumidor
 
-9. **Entrar.** Preencha **E-mail** com `consumer@video-platform.test` e a mesma
-   senha, e clique em **Entrar**.
+10. **Entrar.** Preencha **E-mail** com `consumer@video-platform.test` e a mesma
+    senha, e clique em **Entrar**.
 
-   O **Catalogo** aparece com **um único curso**: `Fundamentos de Producao de
-   Video`. Os outros dois cursos do seed não têm concessão para esta conta, e o
-   curso só apareceu porque o passo 7 o tornou disponível.
+    O **Catalogo** aparece com **um único curso**: `Fundamentos de Producao de
+    Video`. Os outros dois cursos do seed não têm concessão para esta conta, e o
+    curso só apareceu porque o passo 8 o tornou disponível.
 
-10. **Abrir o curso.** Clique nele.
+11. **Abrir o curso.** Clique nele.
 
     A árvore mostra o módulo e a aula criados nos passos 3 e 4 — e **somente**
     conteúdo publicado. Rascunhos não aparecem para o consumidor.
 
-11. **Reproduzir.** Clique na aula.
+12. **Reproduzir.** Clique na aula.
 
     A tela pede os dados de reprodução, e o backend refaz as quatro verificações
     antes de assinar: consumidor autenticado, concessão para o curso, aula
@@ -234,9 +253,10 @@ multipart, então a transferência acontece numa única parte.
 Fim da jornada: o mesmo conteúdo que o produtor criou e publicou é o que o
 consumidor autorizado assiste.
 
-> **A mesma jornada, automatizada.** `make e2e` percorre exatamente estes passos
-> em navegador real, com títulos fixos. Ele recria e semeia a base antes de
-> começar, então descarta o que estiver criado.
+> **A mesma jornada, automatizada.** `make e2e` percorre estes passos em
+> navegador real, com títulos fixos — todos menos o passo 7, que é opcional e
+> ficou de fora do percurso automatizado de propósito. Ele recria e semeia a base
+> antes de começar, então descarta o que estiver criado.
 
 ---
 

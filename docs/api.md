@@ -47,7 +47,7 @@ O arquivo é um OpenAPI 3.1 de arquivo único, sem referências externas — qua
 ferramenta compatível o lê direto do disco.
 
 - **Postman** — *Import* → *File* → `docs/openapi.yaml`. Gera uma coleção com as
-  21 operações. Deixe **Automatically follow redirects** ligado e, em
+  22 operações. Deixe **Automatically follow redirects** ligado e, em
   *Settings*, mantenha o cookie jar ativo.
 - **Insomnia** — *Import from File* → `docs/openapi.yaml`.
 - **Bruno**, **Hoppscotch**, **Swagger UI local** — mesma coisa: importam OpenAPI
@@ -190,29 +190,33 @@ passo que os criou.
 9. `POST /api/video-uploads/{attempt}/complete` com todos os `part_number` e
    `etag` → `202`
 10. `GET /api/lessons/{lesson}/video` em intervalos até `state` chegar a `ready`
-11. `POST /api/lessons/{lesson}/publish` → a aula é publicada. Se esta for a
+11. `GET /api/lessons/{lesson}/video/playback` — **opcional**, e é o produtor
+    conferindo o próprio vídeo antes de decidir publicar. Devolve os mesmos três
+    campos da reprodução do consumidor e funciona com a aula ainda em rascunho:
+    aqui a regra é propriedade, e não concessão mais publicação.
+12. `POST /api/lessons/{lesson}/publish` → a aula é publicada. Se esta for a
     primeira publicação do curso, ele passa de `draft` para `available`; se já
     estiver `available` por uma execução anterior, permanece nesse estado.
 
 **Troca de sessão**
 
-12. `POST /api/auth/logout`
-13. `GET /sanctum/csrf-cookie` — a sessão anterior foi invalidada, e o token
+13. `POST /api/auth/logout`
+14. `GET /sanctum/csrf-cookie` — a sessão anterior foi invalidada, e o token
     precisa ser obtido de novo antes do próximo login
-14. `POST /api/auth/login` — consumidor
+15. `POST /api/auth/login` — consumidor
 
 **Como consumidor**
 
-15. `GET /api/catalog/courses` → o curso aparece, e é o **único** da lista: os
+16. `GET /api/catalog/courses` → o curso aparece, e é o **único** da lista: os
     outros dois cursos do seed não têm concessão para este consumidor. Num
-    ambiente recém-semeado ele não apareceria antes do passo 11 — a listagem só
+    ambiente recém-semeado ele não apareceria antes do passo 12 — a listagem só
     traz cursos em `available`, e é a primeira publicação que promove o curso.
-16. `GET /api/catalog/courses/{course}` → a árvore, com o módulo e a aula
+17. `GET /api/catalog/courses/{course}` → a árvore, com o módulo e a aula
     criados nos passos 5 e 6, e sem rascunhos
-17. `GET /api/lessons/{lesson}/playback` → `playback_url`, `expires_at` e
-    `content_type` para a mesma aula publicada no passo 11
+18. `GET /api/lessons/{lesson}/playback` → `playback_url`, `expires_at` e
+    `content_type` para a mesma aula publicada no passo 12
 
-O `{course}` do passo 16 é o mesmo do passo 3, e o `{lesson}` do passo 17 é o
+O `{course}` do passo 17 é o mesmo do passo 3, e o `{lesson}` do passo 18 é o
 mesmo do passo 6: a jornada fecha sobre o conteúdo que o produtor acabou de
 criar, e não sobre dados pré-existentes.
 
@@ -241,7 +245,12 @@ Três detalhes que costumam custar uma sessão de depuração:
   metadados são observados no armazenamento, não aceitos do relato do cliente.
 
 A reprodução segue a mesma ideia na direção contrária: devolve uma URL assinada
-de **cinco minutos**, e nunca o arquivo.
+de **cinco minutos**, e nunca o arquivo. Vale para as duas rotas que a emitem —
+a do consumidor, `GET /api/lessons/{lesson}/playback`, e a do produtor sobre o
+próprio vídeo, `GET /api/lessons/{lesson}/video/playback`. Elas divergem só na
+política de acesso — perfil, base da autorização e exigência de publicação. A
+disponibilidade exigida do vídeo, o prazo, a tradução de falha ao assinar e o
+corpo da resposta são os mesmos, porque a emissão é uma só.
 
 ---
 

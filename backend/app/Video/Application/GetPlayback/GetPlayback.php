@@ -6,17 +6,14 @@ namespace App\Video\Application\GetPlayback;
 
 use App\Catalog\Application\Port\ConsumerCatalogReadModel;
 use App\Catalog\Domain\Lesson;
-use App\Shared\Application\Port\Clock;
 use App\Shared\Domain\Exception\DomainException;
 use App\Shared\Domain\Failure\Failure;
-use App\Video\Application\Port\Exception\StorageFailure;
-use App\Video\Application\Port\ObjectStorage;
-use App\Video\Application\Port\VideoAttemptRepository;
-use App\Video\Domain\VideoAttempt;
+use App\Video\Application\IssuePlayback\IssuePlayback;
+use App\Video\Application\IssuePlayback\Playback;
 
 /**
- * Autoriza a reproducao de uma aula e emite a URL curta que a entrega
- * (RF-PLB-001 a 008, plan §14.2).
+ * Autoriza a reproducao de uma aula **para o consumidor** e emite a URL curta
+ * que a entrega (RF-PLB-001 a 008, plan §14.2).
  *
  * ## Quatro verificacoes, nesta ordem
  *
@@ -24,6 +21,9 @@ use App\Video\Domain\VideoAttempt;
  *   2. **publicacao** — a aula precisa estar publicada;
  *   3. **estado do video** — a tentativa atual precisa estar em `ready`;
  *   4. **referencia** — precisa haver uma referencia de reproducao gravada.
+ *
+ * As duas primeiras sao desta classe; as duas ultimas, e a assinatura da URL,
+ * ficam em {@see IssuePlayback}, que o produtor tambem usa.
  *
  * A ordem nao e estilistica. A primeira e a unica que responde `404`, e ela vem
  * antes de tudo justamente para que nada do conteudo — nem o titulo, nem o
@@ -33,35 +33,23 @@ use App\Video\Domain\VideoAttempt;
  * interface precisa separar "ainda nao esta pronto" de "nao e para voce"
  * (RF-PLB-007, RF-UI-015).
  *
- * ## O storage e a ultima coisa a ser chamada
+ * ## Publicacao e regra **daqui**, e nao da emissao
  *
- * `presignRead` acontece depois das quatro verificacoes, sem excecao. Uma URL
- * assinada nao comprova que quem a recebeu tinha direito — comprova apenas que a
- * aplicacao permitiu; emiti-la antes de decidir seria assinar primeiro e pensar
- * depois. Nenhum caminho negativo deste arquivo passa pela linha que a emite.
- *
- * ## A chave vem do dominio, nunca do cliente
- *
- * A URL e assinada sobre a `playback_reference` **gravada pela conclusao do
- * processamento**, e nao sobre uma chave remontada a partir de identificadores
- * recebidos na requisicao. Remontar transformaria um parametro de rota em
- * caminho de armazenamento, que e exatamente o que a derivacao da chave em
- * `VideoAttempt` existe para impedir (plan §11.3).
+ * A aula em rascunho e invisivel para o consumidor e visivel para quem a
+ * produziu: o produtor proprietario reproduz o proprio video antes de publicar,
+ * justamente para decidir se publica (RF-PLB-009). Por isso a exigencia de
+ * publicacao fica neste caso de uso, e nao na emissao compartilhada — ali ela
+ * viraria uma condicao com excecao por perfil.
  *
  * ## Leitura pura
  *
  * Sem transacao e sem trava: nada e decidido sobre o estado, nada e gravado.
- * Travar linhas para responder a um `GET` faria consultas simultaneas esperarem
- * umas pelas outras sem disputar coisa alguma.
  */
 final class GetPlayback
 {
     public function __construct(
         private readonly ConsumerCatalogReadModel $catalog,
-        private readonly VideoAttemptRepository $attempts,
-        private readonly ObjectStorage $storage,
-        private readonly Clock $clock,
-        private readonly int $urlTtlSeconds,
+        private readonly IssuePlayback $emitirReproducao,
     ) {}
 
     /**
@@ -70,29 +58,10 @@ final class GetPlayback
     public function __invoke(GetPlaybackQuery $consulta): Playback
     {
         $aula = $this->autorizar($consulta);
-        $tentativa = $this->exigirVideoReproduzivel($aula);
 
-        $expiraEm = $this->clock->now()->modify('+'.$this->urlTtlSeconds.' seconds');
+        $this->exigirPublicada($aula);
 
-        try {
-            $url = $this->storage->presignRead((string) $tentativa->playbackReference(), $expiraEm);
-        } catch (StorageFailure) {
-            // Nada da excecao original atravessa: nem mensagem, nem provedor,
-            // nem chave. Quem pediu recebe a mesma indisponibilidade temporaria
-            // que qualquer outra falha de infraestrutura produz (RN-AUT-005).
-            throw new DomainException(Failure::SERVICE_UNAVAILABLE);
-        }
-
-        return new Playback(
-            url: $url,
-            expiresAt: $expiraEm,
-            // O tipo observado no objeto durante a conclusao do envio. O
-            // declarado e a reserva para uma tentativa antiga que tenha chegado
-            // a `ready` sem passar por essa verificacao — os dois valem
-            // `video/mp4`, porque a abertura ja recusa qualquer outro
-            // (RF-UPL-006).
-            contentType: $tentativa->verifiedContentType() ?? $tentativa->declaredContentType(),
-        );
+        return ($this->emitirReproducao)($aula);
     }
 
     /**
@@ -117,36 +86,18 @@ final class GetPlayback
     }
 
     /**
-     * A tentativa atual da aula, se ela puder ser reproduzida.
+     * Aula em rascunho nao e reproduzivel por quem consome (RF-PLB-003).
      *
-     * As tres condicoes sao verificadas **depois** da autorizacao, e as tres
-     * respondem `409`. Sao caminhos defensivos: publicar exige video em `ready`
-     * com referencia (RN-PUB-002, RN-PUB-003), e um video pronto nao pode ser
-     * substituido (RF-UPL-012), entao uma aula publicada sem video reproduzivel
-     * nao deveria existir. A verificacao continua aqui exatamente porque "nao
-     * deveria" nao e garantia — e o ponto de recusa correto e antes de assinar
-     * uma URL, e nao depois.
+     * `409`, e nao `404`: a aula esta dentro de um curso concedido, e a
+     * distincao entre "ainda nao esta pronto" e "nao e para voce" e o que a
+     * interface precisa para escolher entre esperar e desistir.
      *
      * @throws DomainException
      */
-    private function exigirVideoReproduzivel(Lesson $aula): VideoAttempt
+    private function exigirPublicada(Lesson $aula): void
     {
         if ($aula->isDraft()) {
             throw new DomainException(Failure::LESSON_NOT_PUBLISHED);
         }
-
-        $tentativa = $aula->currentVideoAttemptId() === null
-            ? null
-            : $this->attempts->findCurrentOfLesson($aula->id());
-
-        // `isPlayable()` responde as duas ultimas condicoes de uma vez, e a
-        // pergunta pertence ao agregado: repetir aqui `state === READY &&
-        // referencia !== null` daria uma segunda definicao de "reproduzivel",
-        // livre para divergir da que a publicacao ja consulta.
-        if ($tentativa === null || ! $tentativa->isPlayable()) {
-            throw new DomainException(Failure::LESSON_VIDEO_NOT_READY);
-        }
-
-        return $tentativa;
     }
 }

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Video\Application\GetPlayback;
+namespace App\Video\Application\IssuePlayback;
 
 use DateTimeImmutable;
 
@@ -15,6 +15,11 @@ use DateTimeImmutable;
  * envio, e nao o que o cliente declarou.
  *
  * Imutavel e sem comportamento: e resultado de leitura.
+ *
+ * Mora ao lado de {@see IssuePlayback} porque e o resultado **dela**, e nao de
+ * um dos dois casos de uso que a chamam. Guardado dentro de um deles, o outro
+ * teria de importar do vizinho para devolver o proprio resultado — e a leitura
+ * sugeriria uma dependencia entre consumo e producao que nao existe.
  */
 final class Playback
 {

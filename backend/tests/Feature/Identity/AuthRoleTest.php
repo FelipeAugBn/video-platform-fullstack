@@ -117,7 +117,8 @@ final class AuthRoleTest extends TestCase
         // O teste registra as proprias rotas; o arquivo de rotas de producao
         // continua com apenas as declaradas pela entrega — autenticacao,
         // catalogo do produtor, envio de video, publicacao, o callback de
-        // processamento, o catalogo do consumidor e a reproducao.
+        // processamento, o catalogo do consumidor e as duas reproducoes: a do
+        // consumidor e a conferencia do proprio video pelo produtor.
         $rotas = collect(Route::getRoutes()->getRoutes())
             ->map(fn ($rota): string => (string) $rota->uri())
             ->filter(fn (string $uri): bool => str_starts_with($uri, 'api/'))
@@ -135,6 +136,7 @@ final class AuthRoleTest extends TestCase
                 'api/modules/{module}/lessons', 'api/lessons/{lesson}',
                 'api/lessons/{lesson}/publish',
                 'api/lessons/{lesson}/video', 'api/lessons/{lesson}/video/uploads',
+                'api/lessons/{lesson}/video/playback',
                 'api/video-uploads/{attempt}/complete',
                 'api/video-uploads/{attempt}/parts/{part}/url',
                 'api/catalog/courses', 'api/catalog/courses/{course}',

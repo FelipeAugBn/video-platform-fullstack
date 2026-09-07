@@ -8,6 +8,7 @@ use App\Catalog\Interfaces\Http\Controller\LessonController;
 use App\Catalog\Interfaces\Http\Controller\ModuleController;
 use App\Identity\Interfaces\Http\Controller\AuthController;
 use App\Video\Infrastructure\Webhook\VerifyWebhookSignature;
+use App\Video\Interfaces\Http\Controller\OwnedPlaybackController;
 use App\Video\Interfaces\Http\Controller\PlaybackController;
 use App\Video\Interfaces\Http\Controller\ProcessingCallbackController;
 use App\Video\Interfaces\Http\Controller\VideoUploadController;
@@ -173,6 +174,33 @@ Route::middleware(['auth:sanctum', 'role:producer'])->group(function (): void {
     Route::post('video-uploads/{attempt}/complete', [VideoUploadController::class, 'complete'])
         ->whereUuid('attempt')
         ->name('video-uploads.complete');
+
+    /*
+    | Conferencia do proprio video, antes de decidir publicar (RF-PLB-009).
+    |
+    | Devolve o mesmo corpo de `GET /api/lessons/{lesson}/playback`, e mesmo
+    | assim e outro endereco. O que separa as duas e a **politica**: la a
+    | exigencia e perfil de consumidor, concessao ao curso e aula publicada;
+    | aqui e perfil de produtor e propriedade da aula, e o rascunho e justamente
+    | o caso que importa. Um endereco unico obrigaria a rota a escolher essa
+    | politica pelo perfil de quem chamou — o mesmo motivo pelo qual o catalogo
+    | do consumidor vive sob `catalog/` em vez de dividir `GET /api/courses` com
+    | o produtor.
+    |
+    | Fora da politica, os dois caminhos sao o mesmo: mesma exigencia de video em
+    | `ready` com referencia, mesma emissao por `IssuePlayback`, mesma porta
+    | `ObjectStorage`, mesmo prazo, mesma traducao de falha ao assinar e mesmo
+    | formato de resposta. Duas rotas e duas autorizacoes, **uma** implementacao
+    | que assina a URL.
+    |
+    | Fica sob `lessons/{lesson}/video/` porque e o video da aula que se
+    | reproduz, ao lado da consulta de estado e da abertura de envio. Reunidas,
+    | as tres operacoes de video do produtor tem o mesmo prefixo e a mesma
+    | resolucao de propriedade dentro da consulta.
+    */
+    Route::get('lessons/{lesson}/video/playback', OwnedPlaybackController::class)
+        ->whereUuid('lesson')
+        ->name('lessons.video.playback');
 });
 
 /*

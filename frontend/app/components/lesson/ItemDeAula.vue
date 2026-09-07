@@ -4,10 +4,15 @@ import type { Aula, EstadoDoVideo } from '~/types/video'
 /**
  * Uma aula na estrutura do produtor, com o ciclo do video inteiro (RF-EST-004).
  *
- * Ela compoe tres coisas e nao decide nenhuma: o resumo da aula, o painel que
- * cuida do envio e do acompanhamento, e a acao de publicar. A divisao segue o
- * que cada parte precisa saber — transferir bytes, perguntar o estado e mudar a
- * publicacao sao tres assuntos que so se encontram aqui.
+ * Ela compoe quatro coisas e nao decide nenhuma: o resumo da aula, o painel que
+ * cuida do envio e do acompanhamento, a conferencia do video pronto e a acao de
+ * publicar. A divisao segue o que cada parte precisa saber — transferir bytes,
+ * perguntar o estado, assistir ao resultado e mudar a publicacao sao quatro
+ * assuntos que so se encontram aqui.
+ *
+ * A ordem entre as tres ultimas e a ordem da decisao: o painel diz que ficou
+ * pronto, a conferencia deixa ver o que ficou pronto, e a publicacao vem depois
+ * de as duas terem acontecido.
  *
  * `published_at` nulo **e** o rascunho: nao existe um estado `draft` proprio na
  * aula, e a arvore do produtor inclui rascunhos de proposito — a do consumidor
@@ -80,6 +85,11 @@ const estadoRevelado = ref<EstadoDoVideo | null | undefined>(undefined)
       :estado-inicial="aula.video_state"
       :estado-informado="estadoRevelado"
       @estado="estadoDoVideo = $event"
+    />
+
+    <VideoConferenciaDoVideo
+      :aula-id="aula.id"
+      :estado-do-video="estadoDoVideo"
     />
 
     <LessonAcaoDePublicar

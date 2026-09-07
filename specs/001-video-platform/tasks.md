@@ -40,6 +40,11 @@ ficar pronta, uma revisão consolidou as tarefas pendentes em **24**, para ajust
 a granularidade ao recorte funcional que o desafio pede e retirar complexidade sem
 benefício proporcional. Nenhum requisito obrigatório foi removido.
 
+Uma alteração de escopo aprovada depois dessa consolidação acrescentou a **T110**,
+levando a decomposição a **25** tarefas consolidadas e **36** no total, contando
+as onze da fundação. Ela não renumerou nem reaproveitou identificador: entrou no
+próximo número livre.
+
 Os identificadores **não foram renumerados nem reaproveitados**: os que saíram da
 lista de pendências estão registrados, com destino e motivo, na seção *IDs
 absorvidos ou retirados da baseline*.
@@ -1949,6 +1954,125 @@ sendo os únicos do comando normal.
     roteiros reproduzidos sem improviso. A reprodução a partir de clone limpo é
     validação externa e está concentrada em T109 — **não bloqueia esta tarefa**.
 
+- [x] **T110** Reprodução do próprio vídeo pelo produtor
+  - **Alteração de escopo aprovada depois da baseline.** Não renumera nem
+    reaproveita identificador: entra como o próximo número livre, e a
+    decomposição consolidada passa de 24 para 25 tarefas.
+  - **Objetivo:** o produtor proprietário assiste ao vídeo que enviou, na mesma
+    seção da aula, antes de decidir publicar — e a rota do consumidor continua
+    exatamente como está.
+  - **Arquivos previstos:** `backend/app/Video/Application/IssuePlayback/`,
+    `backend/app/Video/Application/GetOwnedPlayback/`,
+    `backend/app/Video/Application/GetPlayback/GetPlayback.php`,
+    `backend/app/Video/Interfaces/Http/Controller/OwnedPlaybackController.php`,
+    `backend/app/Video/Interfaces/Http/Resource/PlaybackResource.php`,
+    `backend/routes/api.php`, `backend/app/Providers/AppServiceProvider.php`,
+    `backend/tests/Feature/Video/ProducerPlaybackTest.php`,
+    `backend/tests/Feature/Shared/HttpSurfaceTest.php`,
+    `backend/tests/Feature/Shared/HttpContractTest.php`,
+    `backend/tests/Feature/Identity/AuthRoleTest.php`, `docs/openapi.yaml`,
+    `docs/api.md`, `docs/demonstracao.md`, `frontend/app/types/api.ts`,
+    `frontend/app/components/video/ConferenciaDoVideo.vue`,
+    `frontend/app/components/lesson/ItemDeAula.vue`,
+    `frontend/tests/components/conferencia.spec.ts`.
+  - **Requisitos:** RF-PLB-009, AC-PROD-008; RN-PROP-005, RN-AUT-002,
+    RN-AUT-006; RF-AUL-006.
+  - **Implementação — backend.** `GET /api/lessons/{lesson}/video/playback`, no
+    grupo `auth:sanctum` + `role:producer`, com restrição UUID, nome
+    `lessons.video.playback` e controller próprio invocável. Sem route model
+    binding: carregar a aula antes de saber de quem ela é seria ler recurso
+    alheio para só então recusá-lo. Exige sessão válida, perfil `producer`,
+    propriedade resolvida dentro da consulta por `LessonRepository::findOwned`,
+    tentativa atual em `ready` e referência de reprodução presente. A publicação
+    **não** participa: rascunho e aula publicada respondem igual.
+
+    A emissão da URL é **extraída**, não copiada. `IssuePlayback` localiza a
+    tentativa atual, exige que seja reproduzível, assina pela porta
+    `ObjectStorage` com o mesmo `url_ttl` de cinco minutos, converte falha de
+    storage em `SERVICE_UNAVAILABLE` e devolve o mesmo resultado. Ela não
+    autoriza: o caso de uso do consumidor confere concessão e publicação antes de
+    chamá-la, o do produtor confere propriedade. O registro do TTL no
+    `AppServiceProvider` passa a apontar para ela, e é um só.
+
+    **O endpoint do consumidor não muda.** Continua exigindo perfil `consumer`,
+    concessão e aula publicada; nada foi movido para um grupo comum, nenhum
+    endereço passou a aceitar os dois perfis e não há ramificação por perfil
+    dentro de caso de uso nenhum (plan §14.2).
+  - **Implementação — interface.** No mesmo `ItemDeAula`, entre o painel do vídeo
+    e a ação de publicar, porque a ordem na tela é a ordem da decisão. A ação
+    aparece **somente** com o estado compartilhado em `ready`, não depende de
+    `published_at` e não dispara requisição ao montar: a URL é pedida no clique.
+    Enquanto pede, o controle fica desabilitado e informa andamento; o sucesso
+    renderiza o `VideoReprodutor` existente ali mesmo; o erro aparece em estado
+    próprio, e repetir pede uma URL nova. A URL não é exibida como texto nem
+    oferecida para download.
+
+    Sair de `ready` — ou trocar de aula — descarta reprodução e erro **e
+    invalida a solicitação em voo**. Cada solicitação carrega uma geração local;
+    a resposta de uma geração vencida não escreve reprodução, não escreve erro e
+    não mexe no carregamento. Sem isso, uma Promise iniciada antes da mudança
+    ainda resolveria depois dela, reexibindo um vídeo que já não é o atual ou uma
+    negativa que já não descreve nada — e o carregamento ficaria preso, deixando
+    o botão travado quando o vídeo voltasse a `ready`. Um contador por instância
+    resolve o caso inteiro: `useApi` não foi ampliado e não há cancelamento
+    global.
+
+    A interface apenas decide quando oferecer o botão, a partir de estado que já
+    tem. Nenhuma regra de autorização, publicação ou disponibilidade é duplicada
+    aqui — o backend continua sendo a autoridade (RN-AUT-002, RF-UI-017).
+  - **Contrato.** A operação entra no `docs/openapi.yaml` reaproveitando
+    `ReproducaoEnvelope`, `AulaId` e as respostas compartilhadas, com `401`,
+    `403`, `404`, `409` e `503` documentados e exemplos sem URL ou credencial
+    funcional. Os tipos do frontend são regerados **apenas** por
+    `npm run generate:types`. O inventário passa a 22 operações no contrato e 23
+    registradas; `docs/api.md` acompanha a contagem.
+  - **Testes/validação:** suíte de feature própria para a reprodução do produtor
+    — dono com aula em rascunho e com aula publicada, resposta com exatamente os
+    três campos, validade de cinco minutos, assinatura sobre a referência gravada
+    e nunca sobre chave remontada, produtor alheio e aula inexistente
+    indistinguíveis, visitante `401`, consumidor `403`, ausência de tentativa e
+    cada estado fora de `ready` em `409`, `ready` sem referência em `409`,
+    nenhum caminho negativo tocando o armazenamento, e falha ao assinar virando
+    `503` sem vazamento. `ConsumerPlaybackTest` é preservado integralmente e
+    continua verde depois da extração.
+
+    Teste de componente cobrindo botão ausente fora de `ready`, presente em
+    `ready` tanto em rascunho quanto publicada, ausência de chamada antes do
+    clique, endereço correto no clique, estado de carregamento, player inline no
+    sucesso, erro visível com repetição pedindo URL nova, descarte ao sair de
+    `ready`, e publicação continuando disponível e independente.
+
+    Três cenários usam **promessas controladas pelo teste**, porque o descarte do
+    que já está na tela é o caso fácil: sucesso tardio, falha tardia e troca de
+    aula com solicitação em voo. Em cada um a resposta antiga chega depois da
+    mudança de estado, e o que se afirma é que ela não reaparece, que o botão
+    volta utilizável e que uma solicitação nova ocupa o lugar. Verificado por
+    regressão em duas metades: sem o incremento de geração os três reprovam com o
+    estado antigo de volta na tela; com a geração, mas sem o encerramento do
+    carregamento, os três reprovam com o botão preso em `disabled`.
+
+    `HttpSurfaceTest` ganha a entrada na *allowlist* e as contagens novas.
+    Verificado por regressão: com a rota registrada e ausente da lista, o teste
+    reprova apontando exatamente `GET /api/lessons/{lesson}/video/playback` e a
+    contagem 23 contra 22 — e volta a passar depois de declarada.
+  - **O E2E não é ampliado, e isso é decisão.** A jornada existente já prova URL
+    assinada e elemento `<video>` pelo lado do consumidor. O que esta tarefa
+    acrescenta — autorização por propriedade, independência de publicação e
+    apresentação inline — é afirmado por feature no backend e por componente no
+    frontend, com menos custo e menos instabilidade do que um segundo percurso em
+    navegador. Cenário, fixture, `scripts/e2e.sh`, número de jornadas e pipeline
+    ficam intocados.
+  - **Depende de:** T070, T088. A reprodução autorizada e a emissão de URL curta
+    nascem em T070; a tela do produtor com painel do vídeo e ação de publicar,
+    em T088. Esta tarefa se apoia nas duas e não refaz nenhuma.
+  - **Critério de conclusão:** rota registrada e coberta pela suíte de feature
+    própria; `ConsumerPlaybackTest` verde sem alteração de comportamento;
+    superfície HTTP declarada e afirmada; contrato atualizado, válido em
+    `make openapi-lint` e com tipos regerados pelo comando oficial; componente
+    coberto; spec, plano e este documento atualizados na mesma leva; suítes
+    completas de backend e frontend, Pint, ESLint, verificação de tipos, build e
+    `make e2e` sem modificação da jornada.
+
 - [ ] **T109** Revisão final de rastreabilidade e ausência de segredos
   - **Objetivo:** fechar a entrega conferindo coerência e higiene.
   - **Arquivos previstos:** `specs/001-video-platform/spec.md`,
@@ -2023,7 +2147,9 @@ sendo os únicos do comando normal.
     O `grep` é heurística, não garantia; as três frentes juntas é que sustentam a
     conclusão. Além disso, a matriz de cobertura deste documento é revisada linha
     a linha.
-  - **Depende de:** T104, T105.
+  - **Depende de:** T104, T105, T110. A alteração de escopo aprovada depois da
+    baseline entrou pela T110, e a revisão final de coerência só fecha depois de
+    ela estar concluída.
   - **Critério de conclusão:** coerência confirmada, nenhum segredo encontrado, e
     as três validações externas registradas como concluídas.
 
@@ -2037,6 +2163,8 @@ sendo os únicos do comando normal.
 > pipeline (T104), reprodução a partir de clone limpo (T105) e conferência visual
 > em largura reduzida (T093). A entrega não fecha com qualquer uma delas em
 > aberto.
+> **Alteração de escopo posterior:** a T110 acrescentou a conferência do próprio
+> vídeo pelo produtor, e a T109 passou a depender também dela.
 > **Ainda não iniciado:** nada dentro do escopo. Os itens fora do MVP permanecem
 > apenas documentados como limitação.
 
@@ -2045,9 +2173,10 @@ sendo os únicos do comando normal.
 ## IDs absorvidos ou retirados da baseline
 
 A decomposição original tinha 109 pacotes. Uma revisão de escopo consolidou as
-tarefas pendentes em **24**, sem remover nenhum requisito obrigatório do desafio:
-cada critério de aceitação continua com tarefa de implementação e validação
-planejadas, conforme a matriz de cobertura abaixo.
+tarefas pendentes em **24** — **25** depois da alteração de escopo que criou a
+T110 —, sem remover nenhum requisito obrigatório do desafio: cada critério de
+aceitação continua com tarefa de implementação e validação planejadas, conforme a
+matriz de cobertura abaixo.
 
 Os identificadores **não foram renumerados nem reaproveitados**. Os que saíram da
 lista de pendências estão aqui, com destino e motivo, para que o histórico mostre
@@ -2151,12 +2280,22 @@ T093 ────┤                         ├─▶ T105 ──┐   T104  ev
          │                         │          ├─▶ T109
          └─▶ T102 ────┬────────────┘          │
                       │                       │
-                      └─▶ T104 ───────────────┘
+                      └─▶ T104 ───────────────┤
+                                              │
+T070 ──┐                                      │
+       ├─▶ T110 ───────────────────────────────┘   T110  reproducao pelo produtor
+T088 ──┘
 ```
 
 T100 e T102 não dependem uma da outra: a pipeline não executa o E2E, e o E2E não
 espera a pipeline. T105 depende das duas porque documenta tanto a execução local
-da jornada quanto a pipeline; T109 fecha com T104 e T105.
+da jornada quanto a pipeline.
+
+T110 é a alteração de escopo aprovada depois da baseline. Ela pende de T070, que
+trouxe a reprodução autorizada e a emissão de URL curta, e de T088, que trouxe a
+tela do produtor com painel do vídeo e ação de publicar — e não do ramo do E2E
+nem do da pipeline, que ela deliberadamente não altera. T109 fecha com T104, T105
+e T110.
 
 ### Dependências que não podem ser invertidas
 
@@ -2174,6 +2313,7 @@ da jornada quanto a pipeline; T109 fecha com T104 e T105.
 | Contrato completo antes do frontend | T078 depende de T076, a consolidação que cobre upload, webhook, publicação, consumo e reprodução |
 | E2E depende da pilha completa | T100 exige backend, frontend, storage, fila e simulador rodando juntos |
 | Pipeline e E2E são independentes | T102 não executa nem orquestra o E2E; as duas partem de T093 e só se reencontram na documentação, em T105 |
+| Reprodução e tela do produtor antes da conferência | T110 reaproveita a emissão de URL curta nascida em T070 e o item de aula nascido em T088; sem as duas não haveria o que extrair nem onde apresentar |
 
 ### Paralelismo
 
@@ -2203,6 +2343,7 @@ vários, e a coluna de validação nomeia a tarefa em que a prova é executada.
 | Produtor | AC-PROD-005 | T053, T088 | T053, T088 |
 | Produtor | AC-PROD-006 | T053 | T053 |
 | Produtor | AC-PROD-007 | T034 | T034 |
+| Produtor | AC-PROD-008 | T110 | T110 |
 | Vídeo | AC-VID-001 | T042, T043, T088 | T042, T088, T100 |
 | Vídeo | AC-VID-002 | T043 | T043 |
 | Vídeo | AC-VID-003 | T043 | T043 |
@@ -2245,16 +2386,20 @@ vários, e a coluna de validação nomeia a tarefa em que a prova é executada.
 
 ### Requisitos com destino transitivo
 
-A revisão final conferiu, identificador por identificador, os **214** definidos
+A revisão final conferiu, identificador por identificador, os **216** definidos
 na `spec.md`:
 
 | Família | Definidos |
 | --- | --- |
-| `RF` | 114 |
+| `RF` | 115 |
 | `RN` | 36 |
-| `AC` | 30 |
+| `AC` | 31 |
 | `RNF` | 20 |
 | `ABERTO` | 14 |
+
+Eram 214 na baseline. Os dois acrescentados são RF-PLB-009 e AC-PROD-008, da
+alteração de escopo da T110, e os dois aparecem nominalmente na lista de
+requisitos dela — não entram, portanto, entre os de destino transitivo.
 
 **Todos têm destino, depois de expandidas as notações de intervalo.** Boa parte
 não é citada uma a uma: as tarefas escrevem `RF-CUR-001 a 005` ou
@@ -2325,12 +2470,15 @@ isolamento de cursos; ordem de módulos e aulas; autorização entre produtores;
 abertura de upload e conclusão válida e inválida; conclusão repetida sem
 processamento duplicado; HMAC inválido; callback de sucesso e de falha; callback
 duplicado sem efeito duplicado; evento fora do estado esperado sem regressão;
-publicação bloqueada e publicação idempotente; reprodução autorizada e negada.
+publicação bloqueada e publicação idempotente; reprodução autorizada e negada nos
+dois caminhos — o do consumidor, por concessão e publicação, e o do produtor, por
+propriedade e independente de publicação.
 
 **Frontend** — ao menos um formulário cobrindo sucesso, validação e erro; sessão
 expirada; API indisponível; upload com progresso; falha de transferência sem
-conclusão indevida; vídeo processando, pronto e com falha; conteúdo indisponível
-ou não autorizado.
+conclusão indevida; vídeo processando, pronto e com falha; conferência do próprio
+vídeo sob demanda, sem requisição antes do clique; conteúdo indisponível ou não
+autorizado.
 
 **Integrado** — uma jornada crítica real, em navegador, atravessando interface e
 backend.

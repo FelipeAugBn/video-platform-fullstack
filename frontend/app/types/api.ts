@@ -400,6 +400,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lessons/{lesson}/video/playback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dados de reproducao do proprio video
+         * @description Permite ao **produtor proprietario** conferir o video que enviou, antes
+         *     de decidir publicar a aula.
+         *
+         *     Duas verificacoes, nesta ordem: propriedade da aula, resolvida dentro da
+         *     consulta pela cadeia `lesson -> module -> course -> owner_id`; e video em
+         *     `ready` com referencia registrada. **A URL so e assinada depois das
+         *     duas** — nenhum caminho negativo chega ao armazenamento.
+         *
+         *     **A publicacao nao participa da decisao.** Aula em rascunho e aula
+         *     publicada respondem igual, e o rascunho e justamente o caso que motiva a
+         *     operacao: conferir o conteudo faz parte de decidir se ele deve ser
+         *     publicado.
+         *
+         *     E uma operacao distinta de `GET /api/lessons/{lesson}/playback`, e nao
+         *     uma variacao dela. O que difere entre as duas e a **politica de
+         *     acesso**: la a exigencia e perfil de consumidor, concessao ao curso e
+         *     aula publicada; aqui e perfil de produtor e propriedade da aula. Um
+         *     endereco unico obrigaria a operacao a escolher essa politica pelo perfil
+         *     de quem chamou.
+         *
+         *     Fora da politica, os dois caminhos sao o mesmo: a mesma exigencia de
+         *     video em `ready` com referencia registrada, a mesma emissao da URL, o
+         *     mesmo prazo de cinco minutos, a mesma traducao de falha ao assinar e o
+         *     mesmo formato de resposta. Sao dois endpoints e duas autorizacoes, com
+         *     um unico ponto de implementacao que assina a URL.
+         *
+         *     O retorno sao **dados de reproducao, nunca o arquivo**: uma URL `GET`
+         *     pre-assinada valida por **cinco minutos**, o instante exato em que ela
+         *     expira e o tipo do conteudo. Os bytes vao do armazenamento direto ao
+         *     player.
+         *
+         *     **Limitacao assumida:** a mesma da reproducao do consumidor — a URL
+         *     funciona ate expirar e pode ser copiada. Cinco minutos reduzem, nao
+         *     eliminam, a redistribuicao.
+         */
+        get: operations["obterReproducaoDoProdutor"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/catalog/courses": {
         parameters: {
             query?: never;
@@ -1673,6 +1726,77 @@ export interface operations {
             403: components["responses"]["PerfilNegado"];
             404: components["responses"]["NaoEncontrado"];
             500: components["responses"]["ErroInterno"];
+        };
+    };
+    obterReproducaoDoProdutor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identificador da aula. */
+                lesson: components["parameters"]["AulaId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dados de reproducao do video atual da aula. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReproducaoEnvelope"];
+                };
+            };
+            401: components["responses"]["NaoAutenticado"];
+            403: components["responses"]["PerfilNegado"];
+            /**
+             * @description A aula nao existe ou pertence a outro produtor. As duas respostas sao
+             *     **indistinguiveis**: separa-las permitiria descobrir, por varredura
+             *     de identificadores, o que existe no catalogo alheio.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /**
+             * @description A aula e desta pessoa, e nao ha o que reproduzir.
+             *     `LESSON_VIDEO_NOT_READY` cobre os tres casos: aula sem tentativa
+             *     atual, tentativa fora de `ready` e tentativa pronta sem referencia
+             *     registrada. O estado em detalhe fica na consulta de video, que e
+             *     outra operacao.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            500: components["responses"]["ErroInterno"];
+            /**
+             * @description A autorizacao passou, mas **a assinatura da URL falhou** —
+             *     credencial, configuracao ou indisponibilidade do armazenamento.
+             *
+             *     Nada da falha original atravessa: nem a excecao, nem o provedor, nem
+             *     a chave do objeto. Quem chamou recebe a mesma indisponibilidade
+             *     temporaria de qualquer outro erro de infraestrutura, e pode repetir a
+             *     requisicao.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
         };
     };
     listarCursosConcedidos: {

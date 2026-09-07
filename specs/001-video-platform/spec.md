@@ -289,6 +289,11 @@ cria cursos, abre o detalhe de um curso e sua estrutura, cria módulos e aulas,
 inicia e acompanha o envio de um vídeo, visualiza o estado atual do vídeo e
 eventuais falhas, e publica uma aula quando as regras permitirem.
 
+`[DECISÃO]` Entre acompanhar e publicar, ele pode reproduzir o vídeo pronto da
+própria aula para conferi-lo (RF-PLB-009, AC-PROD-008). O desafio não pede nem
+proíbe essa conferência; ela existe porque decidir publicar sem poder ver o que
+foi enviado seria decidir no escuro.
+
 ### 7.1 Cursos
 
 - **RF-CUR-001** `[OBRIGATÓRIO]` O produtor cria um curso informando título e
@@ -637,7 +642,17 @@ headers em `plan.md` §13.4 (ABERTO-006).
 
 `[OBRIGATÓRIO]` O endpoint oficial é `GET /api/lessons/{lesson}/playback`.
 
-- **RF-PLB-001** `[OBRIGATÓRIO]` A reprodução exige consumidor autenticado.
+RF-PLB-001 a 008 descrevem **esse** endpoint, o da jornada do consumidor.
+RF-PLB-009 descreve a operação equivalente de quem produz, sobre o próprio vídeo,
+que tem endereço e regra próprios e não altera nenhum dos anteriores.
+
+- **RF-PLB-001** `[DECISÃO]` O endpoint oficial de reprodução exige consumidor
+  autenticado. O desafio exige reprodução autorizada na jornada do consumidor,
+  e é isso que RF-PLB-002 a 004 preservam; restringir **este endereço** ao perfil
+  `consumer` é escolha do projeto, e decorre de um usuário ter exatamente um
+  perfil (§4) somada ao fato de a regra de acesso aqui ser a concessão. A
+  necessidade equivalente de quem produz é atendida por RF-PLB-009, em endereço
+  próprio e com regra própria.
 - **RF-PLB-002** `[OBRIGATÓRIO]` A reprodução exige concessão de acesso ao curso
   ao qual a aula pertence.
 - **RF-PLB-003** `[OBRIGATÓRIO]` A reprodução exige que a aula esteja publicada.
@@ -652,6 +667,32 @@ headers em `plan.md` §13.4 (ABERTO-006).
 - **RF-PLB-007** `[OBRIGATÓRIO]` Conteúdo não publicado, ainda em processamento
   ou com falha não é reproduzível, e o motivo é comunicado de forma distinguível
   da negativa por autorização.
+- **RF-PLB-009** `[DECISÃO]` O produtor proprietário obtém os dados de
+  reprodução do vídeo atual de uma aula própria, **independentemente de a aula
+  estar publicada**, desde que a tentativa atual esteja `ready` e tenha
+  referência de reprodução registrada. Quem envia um vídeo precisa conferir o
+  resultado antes de decidir publicar, e o endpoint de RF-PLB-001 não serve a
+  isso: ele exige concessão de acesso ao curso e aula publicada, duas condições
+  que o produtor não cumpre sobre o próprio rascunho.
+
+  É operação separada, e não uma flexibilização da anterior. O que difere entre
+  as duas é a **política**: o perfil exigido, a base da autorização — concessão
+  de um lado, propriedade do outro — e a exigência de publicação. Um endereço
+  único obrigaria a escolher essa política pelo perfil de quem chamou, no ponto
+  exato em que a aplicação assina uma credencial temporária.
+
+  Fora da política, os dois caminhos são **o mesmo**: a mesma exigência de vídeo
+  em `ready` com referência de reprodução registrada, a mesma emissão da URL, o
+  mesmo prazo, a mesma tradução de falha ao assinar e o mesmo formato de
+  resposta. São dois endpoints e duas autorizações, e um único lugar que assina
+  a URL — a duplicação estaria em copiar essa assinatura, não em separar as
+  regras que decidem quem chega até ela.
+
+  A negativa por propriedade segue RN-PROP-005: aula alheia e aula inexistente
+  respondem igual. A negativa por indisponibilidade do vídeo é distinguível
+  dela, pelo mesmo motivo de RF-PLB-007. Reproduzir é leitura: não publica,
+  não altera a aula e não altera a tentativa — publicar continua sendo ação
+  explícita e separada (RF-AUL-006).
 
 `[RESOLVIDO]` Objeto privado no storage e URL de leitura pré-assinada de curta
 duração, emitida somente depois de a autorização e a disponibilidade serem
@@ -881,6 +922,18 @@ E publicá-la novamente não produz efeito adicional nem erro
 Dado um curso em `draft` sem nenhuma aula publicada
 Quando sua primeira aula elegível é publicada
 Então o curso passa a `available`
+
+**AC-PROD-008 — o produtor confere o próprio vídeo antes de publicar** (RF-PLB-009)
+Dado um produtor autenticado, com uma aula própria ainda em rascunho, cujo vídeo está em `ready` com referência de reprodução registrada
+Quando ele abre a estrutura do curso
+Então a ação de visualizar o vídeo é oferecida na própria seção da aula
+E nenhuma requisição de reprodução acontece antes de ele acionar a ação
+Quando ele aciona a ação
+Então recebe dados de reprodução no mesmo formato do endpoint do consumidor
+E o vídeo é apresentado ali mesmo, sem sair da estrutura do curso
+E a ação de publicar continua disponível e independente da conferência
+E a mesma solicitação feita por outro produtor é negada de forma indistinguível de uma aula inexistente
+E o mesmo vale depois de a aula ser publicada, sem que a publicação altere o resultado
 
 ### 15.2 Vídeo, upload e processamento
 
@@ -1154,7 +1207,7 @@ Relaciona os grupos de requisitos deste documento às seções do desafio oficia
 | §7.2 | Callback de processamento | RF-WHK-001 a 011; RN-IDM-002, RN-IDM-003; RN-VID-004, RN-VID-006 a 008; RF-ERR-008, RF-ERR-014; AC-VID-004 a 007, AC-VID-009, AC-VID-013 |
 | §7.3 | Publicação | RF-PUB-001 a 003; RN-PUB-001 a 006; AC-PROD-004, AC-PROD-005 |
 | §7.4 | Consumo | RF-PLB-001 a 008; AC-CONS-001 a 003, AC-CONS-005 |
-| §8.1 | Jornada do produtor | Seção 7; AC-PROD-001 a 007 |
+| §8.1 | Jornada do produtor | Seção 7; RF-PLB-009; AC-PROD-001 a 008 |
 | §8.2 | Jornada do consumidor | Seção 8; RF-CONS-001 a 006; AC-CONS-001 a 005 |
 | §9.1 | Estados de interface | RF-UI-001 a 015; AC-UI-001 a 004 |
 | §9.2 | Upload de arquivos grandes | RF-UI-004; RF-UPL-005; RNF-001; ABERTO-014 |

@@ -20,7 +20,7 @@ use App\Shared\Application\Port\Clock;
 use App\Shared\Application\Port\TransactionManager;
 use App\Shared\Infrastructure\Clock\SystemClock;
 use App\Shared\Infrastructure\Transaction\DatabaseTransactionManager;
-use App\Video\Application\GetPlayback\GetPlayback;
+use App\Video\Application\IssuePlayback\IssuePlayback;
 use App\Video\Application\Port\AttemptLock;
 use App\Video\Application\Port\ObjectStorage;
 use App\Video\Application\Port\ProcessingQueue;
@@ -127,10 +127,14 @@ final class AppServiceProvider extends ServiceProvider
             ->give(static fn (): int => (int) config('video.webhook.retry_after'));
 
         // Mesmo motivo, do outro lado do fluxo: a validade da URL de reproducao
-        // e politica do caso de uso (plan §14.2), e ele continua construivel com
-        // um valor explicito — o que permite a um teste encurtar ou alongar a
+        // e politica da emissao (plan §14.2), e ela continua construivel com um
+        // valor explicito — o que permite a um teste encurtar ou alongar a
         // janela sem tocar no ambiente.
-        $this->app->when(GetPlayback::class)
+        //
+        // O registro e **um so** porque a emissao e uma so: consumidor e
+        // produtor chegam a `IssuePlayback` por casos de uso diferentes, e um
+        // prazo declarado duas vezes teria como divergir.
+        $this->app->when(IssuePlayback::class)
             ->needs('$urlTtlSeconds')
             ->give(static fn (): int => (int) config('video.playback.url_ttl'));
     }
