@@ -66,6 +66,24 @@ async function aoCriarModulo(modulo: Modulo): Promise<void> {
   await carregar()
 }
 
+/**
+ * A aula foi publicada, e a arvore inteira e relida.
+ *
+ * A releitura nao existe para descobrir `published_at` — ele veio na resposta da
+ * publicacao. Ela existe porque a **primeira** publicacao do curso o torna
+ * `available` na mesma transacao, e esse estado esta no cabecalho da pagina, nao
+ * na aula. Sem relê-la, o curso continuaria escrito como rascunho depois de
+ * deixar de ser um.
+ */
+async function aoPublicar(aula: Aula): Promise<void> {
+  confirmacao.value = {
+    titulo: 'Aula publicada',
+    descricao: `A aula "${aula.title}" foi publicada.`,
+  }
+
+  await carregar()
+}
+
 async function aoCriarAula(aula: Aula): Promise<void> {
   confirmacao.value = {
     titulo: 'Aula criada',
@@ -169,6 +187,7 @@ onMounted(() => {
             :key="modulo.id"
             :modulo="modulo"
             @criada="aoCriarAula"
+            @publicada="aoPublicar"
           />
         </ol>
 

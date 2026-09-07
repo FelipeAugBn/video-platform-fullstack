@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises } from '@vue/test-utils'
-import type { Aula, EstruturaEnvelope, ModuloComAulas } from '~/types/catalogo'
+import type { Aula, EstruturaEnvelope, ModuloComAulas, TentativaDeVideo } from '~/types/video'
 import { ErroDeApi } from '~/utils/erroDeApi'
 import Estrutura from '~/pages/producer/courses/[id].vue'
 
@@ -72,6 +72,55 @@ function chamadas(metodo: 'GET' | 'POST'): unknown[][] {
   return requisitar.mock.calls.filter(([, opcoes]) => ((opcoes as Opcoes | undefined)?.method ?? 'GET') === metodo)
 }
 
+/**
+ * So as leituras da arvore.
+ *
+ * Cada aula com video em estado nao terminal consulta o proprio endpoint de
+ * video, e contar tudo junto misturaria duas perguntas diferentes: quantas vezes
+ * a **estrutura** foi relida, e quantas vezes o estado de um video foi
+ * consultado.
+ */
+function leiturasDaEstrutura(): unknown[][] {
+  return requisitar.mock.calls.filter(([caminho]) => String(caminho).endsWith('/structure'))
+}
+
+/**
+ * A tentativa que o endpoint de video devolveria para aquela aula, coerente com
+ * o `video_state` que a propria arvore declarou.
+ *
+ * Responder outra coisa faria a tela exibir um estado que a arvore contradiz, e
+ * o teste passaria a medir a incoerencia do dublê em vez da tela.
+ */
+function tentativaDaAula(estrutura: EstruturaEnvelope, aulaId: string): TentativaDeVideo | null {
+  const encontrada = estrutura.data.modules
+    .flatMap(item => item.lessons)
+    .find(item => item.id === aulaId)
+
+  if (encontrada === undefined || encontrada.video_state === null) {
+    return null
+  }
+
+  return {
+    id: `t-${aulaId}`,
+    lesson_id: aulaId,
+    state: encontrada.video_state,
+    filename: 'aula.mp4',
+    failure_code: null,
+    failure_message: null,
+  }
+}
+
+/** Atende a arvore e o endpoint de video de cada aula dela. */
+function responderArvore(estrutura: EstruturaEnvelope): void {
+  requisitar.mockImplementation((caminho: string) => {
+    const video = /[/]api[/]lessons[/]([^/]+)[/]video$/.exec(caminho)
+
+    return Promise.resolve(video === null
+      ? estrutura
+      : { data: tentativaDaAula(estrutura, video[1] ?? '') })
+  })
+}
+
 async function assentar(): Promise<void> {
   await flushPromises()
   await nextTick()
@@ -94,7 +143,7 @@ describe('leitura da arvore', () => {
   })
 
   it('usa uma unica leitura como fonte do curso e da arvore', async () => {
-    requisitar.mockResolvedValue(arvore([]))
+    responderArvore(arvore([]))
 
     const tela = await mountSuspended(Estrutura)
     await assentar()
@@ -113,7 +162,7 @@ describe('leitura da arvore', () => {
 
   it('sai do carregamento e oferece nova tentativa quando a leitura falha', async () => {
     requisitar.mockRejectedValueOnce(problema(500, 'INTERNAL_ERROR'))
-    requisitar.mockResolvedValue(arvore([modulo('m1', 'Introducao', 1)]))
+    responderArvore(arvore([modulo('m1', 'Introducao', 1)]))
 
     const tela = await mountSuspended(Estrutura)
     await assentar()
@@ -128,7 +177,7 @@ describe('leitura da arvore', () => {
   })
 
   it('distingue curso sem modulos de curso nao carregado', async () => {
-    requisitar.mockResolvedValue(arvore([]))
+    responderArvore(arvore([]))
 
     const tela = await mountSuspended(Estrutura)
     await assentar()
@@ -143,7 +192,7 @@ describe('leitura da arvore', () => {
   })
 
   it('distingue modulo sem aulas de modulo nao carregado', async () => {
-    requisitar.mockResolvedValue(arvore([modulo('m1', 'Introducao', 1)]))
+    responderArvore(arvore([modulo('m1', 'Introducao', 1)]))
 
     const tela = await mountSuspended(Estrutura)
     await assentar()
@@ -160,7 +209,7 @@ describe('ordem e estado exibidos', () => {
     // Titulos em ordem alfabetica decrescente de proposito: um `sort` por titulo
     // inverteria a sequencia, e um `sort` por `position` a manteria — so a
     // ausencia de ordenacao reproduz o array como veio.
-    requisitar.mockResolvedValue(arvore([
+    responderArvore(arvore([
       modulo('m1', 'Zebra', 1, [
         aula('a1', 'Zulu', 1),
         aula('a2', 'Mike', 2),
@@ -184,7 +233,7 @@ describe('ordem e estado exibidos', () => {
   })
 
   it('inclui rascunhos e distingue publicada de rascunho', async () => {
-    requisitar.mockResolvedValue(arvore([
+    responderArvore(arvore([
       modulo('m1', 'Introducao', 1, [
         aula('a1', 'Publicada', 1, { published_at: '2026-09-06T10:00:00+00:00', video_state: 'ready' }),
         aula('a2', 'Rascunho', 2),
@@ -201,7 +250,7 @@ describe('ordem e estado exibidos', () => {
   })
 
   it('exibe o estado do video, inclusive quando nao ha video', async () => {
-    requisitar.mockResolvedValue(arvore([
+    responderArvore(arvore([
       modulo('m1', 'Introducao', 1, [
         aula('a1', 'Pronta', 1, { video_state: 'ready' }),
         aula('a2', 'Processando', 2, { video_state: 'processing' }),
@@ -264,7 +313,7 @@ describe('criacao de modulo', () => {
     const [, opcoes] = chamadas('POST')[0] as [string, Opcoes]
     expect(Object.keys(opcoes.body ?? {})).toEqual(['title'])
 
-    expect(chamadas('GET')).toHaveLength(2)
+    expect(leiturasDaEstrutura()).toHaveLength(2)
     expect(tela.find('[data-estado="sucesso"]').text()).toContain('Producao')
   })
 
@@ -317,7 +366,7 @@ describe('criacao de modulo', () => {
     expect((tela.find('#campo-titulo-modulo').element as HTMLInputElement).value).toBe('Producao')
 
     // A estrutura nao foi relida: nada mudou no servidor.
-    expect(chamadas('GET')).toHaveLength(1)
+    expect(leiturasDaEstrutura()).toHaveLength(1)
   })
 })
 
@@ -356,7 +405,7 @@ describe('criacao de aula', () => {
     const [, opcoes] = chamadas('POST')[0] as [string, Opcoes]
     expect(Object.keys(opcoes.body ?? {})).toEqual(['title'])
 
-    expect(chamadas('GET')).toHaveLength(2)
+    expect(leiturasDaEstrutura()).toHaveLength(2)
     expect(tela.find('[data-modulo-id="m1"]').findAll('[data-aula-id]').map(item => item.attributes('data-aula-id')))
       .toEqual(['a1', 'a2'])
   })
@@ -402,7 +451,7 @@ describe('criacao confirmada com releitura falha', () => {
         return Promise.resolve({ data: { id: 'm2', course_id: 'c1', title: 'Producao', position: 2 } })
       }
 
-      return criado && chamadas('GET').length === 2
+      return criado && leiturasDaEstrutura().length === 2
         ? Promise.reject(ErroDeApi.de(new Error('Failed to fetch')))
         : Promise.resolve(arvore(criado
             ? [modulo('m1', 'Introducao', 1), modulo('m2', 'Producao', 2)]
@@ -426,7 +475,7 @@ describe('criacao confirmada com releitura falha', () => {
     // A nova tentativa repetiu a leitura, e nao a criacao: um segundo `POST`
     // criaria um modulo duplicado, na posicao 3.
     expect(chamadas('POST')).toHaveLength(1)
-    expect(chamadas('GET')).toHaveLength(3)
+    expect(leiturasDaEstrutura()).toHaveLength(3)
     expect(tela.find('[data-modulo-id="m2"]').exists()).toBe(true)
   })
 })

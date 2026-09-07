@@ -4,9 +4,13 @@ import type { EstadoDoVideo } from '~/types/catalogo'
 /**
  * O estado do video de uma aula (RF-UI-004 a 007).
  *
- * Nesta tela o estado e **informativo**. Enviar, acompanhar e publicar sao
- * acoes da jornada seguinte; aqui o produtor so precisa enxergar em que ponto
- * cada aula esta antes de decidir o que fazer.
+ * A etiqueta e **so o rotulo**. Enviar, acompanhar e publicar sao do painel de
+ * video e da acao de publicar, logo abaixo dela na mesma aula; aqui fica apenas
+ * o resumo que se le de relance ao percorrer a lista.
+ *
+ * O valor exibido nao vem direto da arvore: quem o passa e a aula, que mantem o
+ * estado observado pelo painel. Lendo `video_state` da estrutura, esta etiqueta
+ * continuaria mostrando `processing` depois de o processamento ter terminado.
  *
  * `null` tem rotulo proprio, e nao um espaco em branco: "sem video" e uma
  * informacao — a aula existe e ainda nao teve nenhuma tentativa de envio —, e

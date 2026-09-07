@@ -13,7 +13,7 @@ import type { Aula, ModuloComAulas } from '~/types/catalogo'
  */
 defineProps<{ modulo: ModuloComAulas }>()
 
-const emit = defineEmits<{ criada: [Aula] }>()
+const emit = defineEmits<{ criada: [Aula], publicada: [Aula] }>()
 </script>
 
 <template>
@@ -54,6 +54,7 @@ const emit = defineEmits<{ criada: [Aula] }>()
         v-for="aula in modulo.lessons"
         :key="aula.id"
         :aula="aula"
+        @publicada="emit('publicada', $event)"
       />
     </ol>
 

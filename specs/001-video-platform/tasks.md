@@ -1618,7 +1618,7 @@ fase inteira roda com o callback sendo exercido diretamente pelos testes.
   - **Critério de conclusão:** AC-PROD-001, AC-PROD-003 e AC-UI-001 cobertos na
     interface.
 
-- [ ] **T088** Upload, acompanhamento do processamento e publicação
+- [x] **T088** Upload, acompanhamento do processamento e publicação
   - **Objetivo:** enviar o vídeo pelo navegador, acompanhar o estado e publicar a
     aula.
   - **Arquivos previstos:** `frontend/app/composables/useMultipartUpload.ts`,
