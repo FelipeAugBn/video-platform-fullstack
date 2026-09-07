@@ -93,22 +93,15 @@ onMounted(() => {
 </script>
 
 <template>
-  <main class="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-    <p class="text-sm">
-      <NuxtLink
-        to="/catalog"
-        data-acao="voltar-para-catalogo"
-        class="underline-offset-4 hover:underline"
-      >
-        Voltar para o catalogo
-      </NuxtLink>
-    </p>
+  <UiPagina>
+    <UiTrilha
+      rotulo="Catalogo"
+      destino="/catalog"
+      acao="voltar-para-catalogo"
+      atual="Aula"
+    />
 
-    <header>
-      <h1 class="text-2xl font-semibold">
-        Aula
-      </h1>
-    </header>
+    <UiCabecalhoDePagina titulo="Aula" />
 
     <UiEstadoCarregando
       v-if="carregando"
@@ -138,5 +131,5 @@ onMounted(() => {
       v-else-if="reproducao"
       :reproducao="reproducao"
     />
-  </main>
+  </UiPagina>
 </template>

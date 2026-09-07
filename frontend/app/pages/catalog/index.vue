@@ -120,27 +120,16 @@ onMounted(() => {
 </script>
 
 <template>
-  <main class="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-    <header>
-      <h1 class="text-2xl font-semibold">
-        Catalogo
-      </h1>
-      <p class="text-sm text-muted">
-        Os cursos liberados para a sua conta. Abra um curso para ver os modulos e as aulas.
-      </p>
-    </header>
+  <UiPagina>
+    <UiCabecalhoDePagina
+      titulo="Catalogo"
+      descricao="Estes sao os cursos liberados para a sua conta. Abra um curso para ver os modulos e comecar a assistir."
+    />
 
-    <section
-      aria-labelledby="titulo-do-catalogo"
-      class="flex flex-col gap-4"
+    <UiSecaoDaTela
+      id="titulo-do-catalogo"
+      titulo="Cursos disponiveis"
     >
-      <h2
-        id="titulo-do-catalogo"
-        class="text-lg font-semibold"
-      >
-        Cursos disponiveis
-      </h2>
-
       <UiEstadoCarregando
         v-if="carregando"
         rotulo="Carregando o catalogo..."
@@ -190,6 +179,6 @@ onMounted(() => {
           @ir="irPara"
         />
       </template>
-    </section>
-  </main>
+    </UiSecaoDaTela>
+  </UiPagina>
 </template>

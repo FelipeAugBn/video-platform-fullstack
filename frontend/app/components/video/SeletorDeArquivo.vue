@@ -28,10 +28,10 @@ function aoMudar(evento: Event): void {
 </script>
 
 <template>
-  <div class="flex flex-col gap-1">
+  <div class="flex flex-col gap-2 rounded-lg border border-dashed border-accented bg-default p-3">
     <label
       :for="id"
-      class="text-sm font-medium"
+      class="text-sm font-medium text-highlighted"
     >
       Arquivo de video
     </label>
@@ -42,12 +42,12 @@ function aoMudar(evento: Event): void {
       accept="video/mp4"
       :disabled="desabilitado"
       data-acao="escolher-video"
-      class="text-sm file:mr-3 file:rounded-md file:border-0 file:bg-elevated file:px-3 file:py-1.5 file:text-sm"
+      class="min-w-0 text-sm text-muted file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-inverted disabled:opacity-60"
       @change="aoMudar"
     >
 
     <p class="text-xs text-muted">
-      O tipo e o tamanho aceitos sao verificados pela API no momento do envio.
+      O envio comeca assim que voce escolher o arquivo. O tipo e o tamanho aceitos sao verificados pela API.
     </p>
   </div>
 </template>

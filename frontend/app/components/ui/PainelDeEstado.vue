@@ -47,6 +47,12 @@ const papel = computed(() => (props.tom === 'erro' || props.tom === 'atencao' ? 
 </script>
 
 <template>
+  <!--
+    Todos os estados da aplicacao passam por aqui, e por isso a geometria e
+    definida num lugar so: mesmo raio, mesma coluna interna e o mesmo peso de
+    titulo. O que muda entre eles e a cor, o icone e o papel — que sao o que os
+    torna distintos, e nao o desenho.
+  -->
   <UAlert
     :color="cor"
     :icon="icone"
@@ -55,6 +61,13 @@ const papel = computed(() => (props.tom === 'erro' || props.tom === 'atencao' ? 
     variant="subtle"
     :role="papel"
     :data-tom="tom"
+    :ui="{
+      root: 'items-start gap-3 p-4',
+      wrapper: 'gap-1',
+      title: 'text-sm font-semibold',
+      description: 'text-sm leading-relaxed opacity-90',
+      actions: 'mt-2',
+    }"
   >
     <template
       v-if="$slots.acoes"

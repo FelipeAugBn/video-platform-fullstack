@@ -9,10 +9,12 @@ import { ErroDeApi } from '~/utils/erroDeApi'
  *
  * ## Por que fica entre o painel e a publicacao
  *
- * A ordem na tela e a ordem da decisao: o painel diz que o video ficou pronto,
- * esta secao deixa assistir ao que ficou pronto, e so entao aparece a acao de
- * publicar. Colocada depois de publicar, a conferencia chegaria tarde demais
- * para servir a alguma coisa.
+ * E posicao na tela, e nao etapa de um fluxo. O painel acompanha o video; esta
+ * secao e a acao de publicar ficam disponiveis **juntas**, sob a mesma condicao
+ * — o video em `ready` —, e a conferencia vem antes porque assistir depois de
+ * publicar chegaria tarde demais para ajudar a decidir. Publicar nao exige ter
+ * passado por aqui: o botao de publicar esta logo abaixo, disponivel desde o
+ * mesmo instante.
  *
  * ## Sob demanda, e nunca antes
  *
@@ -178,6 +180,7 @@ async function visualizar(): Promise<void> {
     <VideoReprodutor
       v-if="reproducao"
       :reproducao="reproducao"
+      class="max-w-xl"
     />
 
     <!--
@@ -200,7 +203,6 @@ async function visualizar(): Promise<void> {
       type="button"
       color="neutral"
       variant="outline"
-      size="sm"
       icon="i-lucide-play"
       :loading="carregando"
       :disabled="carregando"

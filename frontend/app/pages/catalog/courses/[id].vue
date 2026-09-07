@@ -89,16 +89,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <main class="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-    <p class="text-sm">
-      <NuxtLink
-        to="/catalog"
-        data-acao="voltar-para-catalogo"
-        class="underline-offset-4 hover:underline"
-      >
-        Voltar para o catalogo
-      </NuxtLink>
-    </p>
+  <UiPagina>
+    <UiTrilha
+      rotulo="Catalogo"
+      destino="/catalog"
+      acao="voltar-para-catalogo"
+      :atual="estrutura?.title"
+    />
 
     <UiEstadoCarregando
       v-if="carregando"
@@ -123,35 +120,22 @@ onMounted(() => {
     </div>
 
     <template v-else-if="estrutura">
-      <header
+      <UiCabecalhoDePagina
         data-curso
         :data-curso-id="estrutura.id"
-        class="flex flex-col gap-2"
+        :titulo="estrutura.title"
+        :descricao="estrutura.description"
       >
-        <div class="flex flex-wrap items-center gap-3">
-          <h1 class="text-2xl font-semibold">
-            {{ estrutura.title }}
-          </h1>
-
+        <template #etiquetas>
           <CourseEtiquetaDeEstado :estado="estrutura.state" />
-        </div>
+        </template>
+      </UiCabecalhoDePagina>
 
-        <p class="text-sm text-muted">
-          {{ estrutura.description }}
-        </p>
-      </header>
-
-      <section
-        aria-labelledby="titulo-dos-modulos"
-        class="flex flex-col gap-4"
+      <UiSecaoDaTela
+        id="titulo-dos-modulos"
+        titulo="Conteudo do curso"
+        descricao="Os modulos aparecem na ordem definida pelo curso. Abra uma aula para assistir."
       >
-        <h2
-          id="titulo-dos-modulos"
-          class="text-lg font-semibold"
-        >
-          Modulos
-        </h2>
-
         <div
           v-if="estrutura.modules.length === 0"
           data-vazio="modulos"
@@ -165,7 +149,7 @@ onMounted(() => {
         <ol
           v-else
           data-lista="modulos"
-          class="flex flex-col gap-4"
+          class="flex flex-col gap-5"
         >
           <ModuleCartaoDeModuloPublicado
             v-for="modulo in estrutura.modules"
@@ -173,7 +157,7 @@ onMounted(() => {
             :modulo="modulo"
           />
         </ol>
-      </section>
+      </UiSecaoDaTela>
     </template>
-  </main>
+  </UiPagina>
 </template>

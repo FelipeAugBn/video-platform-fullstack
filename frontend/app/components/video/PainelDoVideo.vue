@@ -367,7 +367,7 @@ onMounted(() => {
   <section
     data-painel-do-video
     :data-situacao-do-video="situacao"
-    class="flex flex-col gap-3 border-t border-default pt-3"
+    class="flex flex-col gap-3"
   >
     <UiEstadoDeSucesso
       v-if="envioConcluido"
@@ -399,7 +399,6 @@ onMounted(() => {
         <UButton
           color="neutral"
           variant="outline"
-          size="sm"
           icon="i-lucide-rotate-ccw"
           :loading="ocupado"
           :disabled="ocupado"

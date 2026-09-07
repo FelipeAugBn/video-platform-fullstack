@@ -24,41 +24,43 @@ defineProps<{ modulo: ModuloComAulasPublicadas }>()
   <li
     data-modulo
     :data-modulo-id="modulo.id"
-    class="flex flex-col gap-3 rounded-lg border border-default p-4"
+    class="overflow-hidden rounded-xl border border-default bg-default"
   >
-    <div class="flex items-baseline gap-3">
+    <div class="flex items-center gap-3 border-b border-default bg-muted px-4 py-3 sm:px-5">
       <span
         data-modulo-posicao
-        class="text-xs text-muted tabular-nums"
+        class="grid size-7 shrink-0 place-items-center rounded-md bg-primary/10 text-xs font-semibold text-primary tabular-nums"
       >
-        {{ modulo.position }}.
+        {{ modulo.position }}
       </span>
 
-      <h3 class="text-base font-semibold">
+      <h3 class="min-w-0 text-base font-semibold text-highlighted">
         {{ modulo.title }}
       </h3>
     </div>
 
-    <div
-      v-if="modulo.lessons.length === 0"
-      data-vazio="aulas"
-    >
-      <UiEstadoVazio
-        titulo="Nenhuma aula disponivel neste modulo"
-        descricao="As aulas aparecem aqui assim que forem liberadas."
-      />
-    </div>
+    <div class="px-4 py-3 sm:px-5">
+      <div
+        v-if="modulo.lessons.length === 0"
+        data-vazio="aulas"
+      >
+        <UiEstadoVazio
+          titulo="Nenhuma aula disponivel neste modulo"
+          descricao="As aulas aparecem aqui assim que forem liberadas."
+        />
+      </div>
 
-    <ol
-      v-else
-      data-lista="aulas"
-      class="divide-y divide-default"
-    >
-      <LessonItemDeAulaPublicada
-        v-for="aula in modulo.lessons"
-        :key="aula.id"
-        :aula="aula"
-      />
-    </ol>
+      <ol
+        v-else
+        data-lista="aulas"
+        class="flex flex-col"
+      >
+        <LessonItemDeAulaPublicada
+          v-for="aula in modulo.lessons"
+          :key="aula.id"
+          :aula="aula"
+        />
+      </ol>
+    </div>
   </li>
 </template>

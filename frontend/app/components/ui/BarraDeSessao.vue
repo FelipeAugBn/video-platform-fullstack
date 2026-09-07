@@ -10,6 +10,12 @@ import { ErroDeApi } from '~/utils/erroDeApi'
  * interface**, e trocar de produtor para consumidor sem uma acao de sair
  * obrigaria a apagar cookie na mao.
  *
+ * ## O que ela comunica
+ *
+ * Identidade da plataforma, a area em que a pessoa esta, quem esta autenticado e
+ * a saida. Nada alem disso: com duas areas no total — uma por perfil —, um menu
+ * lateral guardaria um unico destino atras de mais um clique.
+ *
  * ## O link do perfil e conveniencia, nao autorizacao
  *
  * Mostrar "Meus cursos" para quem produz e "Catalogo" para quem consome poupa
@@ -33,6 +39,17 @@ const erro = ref<ErroDeApi | null>(null)
 const ROTULO_DA_AREA = {
   producer: 'Meus cursos',
   consumer: 'Catalogo',
+} as const satisfies Record<Usuario['role'], string>
+
+/*
+| O perfil escrito por extenso, ao lado do nome.
+|
+| Nomeia a atividade, e nao a pessoa: "Producao" e "Consumo" descrevem o que a
+| conta faz na plataforma sem atribuir genero a quem esta autenticado.
+*/
+const ROTULO_DO_PERFIL = {
+  producer: 'Producao',
+  consumer: 'Consumo',
 } as const satisfies Record<Usuario['role'], string>
 
 async function encerrar(): Promise<void> {
@@ -64,42 +81,59 @@ async function encerrar(): Promise<void> {
   <header
     v-if="autenticado && usuario"
     data-barra-de-sessao
-    class="border-b border-default"
+    class="sticky top-0 z-30 border-b border-default bg-default"
   >
-    <div class="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 p-4">
-      <nav
-        aria-label="Principal"
-        class="grow"
-      >
+    <div class="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3 sm:px-6">
+      <UiMarca class="shrink-0" />
+
+      <span
+        aria-hidden="true"
+        class="hidden h-5 w-px shrink-0 bg-accented sm:block"
+      />
+
+      <!--
+        A area atual e o unico destino do perfil, entao o marcador de "voce esta
+        aqui" e o proprio link: um segundo rotulo repetiria a mesma palavra ao
+        lado dela.
+      -->
+      <nav aria-label="Principal">
         <NuxtLink
           :to="destinoDoPerfil(usuario.role)"
           data-acao="ir-para-minha-area"
-          class="text-sm font-medium underline-offset-4 hover:underline focus-visible:underline"
+          class="inline-flex items-center rounded-md bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/15"
         >
           {{ ROTULO_DA_AREA[usuario.role] }}
         </NuxtLink>
       </nav>
 
-      <p
-        data-usuario
-        class="text-sm text-muted"
-      >
-        {{ usuario.name }}
-      </p>
+      <div class="ms-auto flex min-w-0 items-center gap-3">
+        <div class="min-w-0 text-right leading-tight">
+          <p
+            data-usuario
+            class="truncate text-sm font-medium text-highlighted"
+          >
+            {{ usuario.name }}
+          </p>
 
-      <UButton
-        type="button"
-        color="neutral"
-        variant="outline"
-        size="sm"
-        icon="i-lucide-log-out"
-        :disabled="saindo"
-        :aria-busy="saindo"
-        data-acao="sair"
-        @click="encerrar"
-      >
-        {{ saindo ? 'Saindo...' : 'Sair' }}
-      </UButton>
+          <p class="truncate text-xs text-muted">
+            {{ ROTULO_DO_PERFIL[usuario.role] }}
+          </p>
+        </div>
+
+        <UButton
+          type="button"
+          color="neutral"
+          variant="outline"
+          icon="i-lucide-log-out"
+          :disabled="saindo"
+          :aria-busy="saindo"
+          data-acao="sair"
+          class="shrink-0"
+          @click="encerrar"
+        >
+          {{ saindo ? 'Saindo...' : 'Sair' }}
+        </UButton>
+      </div>
     </div>
 
     <!--
@@ -109,7 +143,7 @@ async function encerrar(): Promise<void> {
     -->
     <div
       v-if="erro"
-      class="mx-auto w-full max-w-3xl px-4 pb-4"
+      class="mx-auto w-full max-w-5xl px-4 pb-4 sm:px-6"
     >
       <UiEstadoDeFalha
         :erro="erro"

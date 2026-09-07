@@ -26,12 +26,11 @@ const temProxima = computed(() => props.atual < props.ultima)
   <nav
     aria-label="Paginacao"
     data-paginacao
-    class="flex items-center justify-between gap-3"
+    class="flex items-center justify-between gap-3 border-t border-default pt-4"
   >
     <UButton
       color="neutral"
       variant="outline"
-      size="sm"
       icon="i-lucide-chevron-left"
       :disabled="!temAnterior"
       data-acao="pagina-anterior"
@@ -47,7 +46,7 @@ const temProxima = computed(() => props.atual < props.ultima)
     <p
       aria-live="polite"
       data-paginacao-posicao
-      class="text-sm text-muted"
+      class="text-sm text-muted tabular-nums"
     >
       Pagina {{ atual }} de {{ ultima }}
     </p>
@@ -55,7 +54,6 @@ const temProxima = computed(() => props.atual < props.ultima)
     <UButton
       color="neutral"
       variant="outline"
-      size="sm"
       icon="i-lucide-chevron-right"
       trailing
       :disabled="!temProxima"

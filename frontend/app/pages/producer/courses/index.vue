@@ -139,15 +139,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <main class="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-    <header>
-      <h1 class="text-2xl font-semibold">
-        Meus cursos
-      </h1>
-      <p class="text-sm text-muted">
-        Crie um curso e abra o detalhe para montar modulos e aulas.
-      </p>
-    </header>
+  <UiPagina>
+    <UiCabecalhoDePagina
+      titulo="Meus cursos"
+      descricao="Aqui ficam os cursos que voce produz. Crie um curso e abra a estrutura dele para montar modulos, aulas e videos."
+    />
 
     <UiEstadoDeSucesso
       v-if="confirmacao"
@@ -155,58 +151,63 @@ onMounted(() => {
       :descricao="confirmacao.descricao"
     />
 
-    <CourseFormularioDeCurso @criado="aoCriar" />
+    <!--
+      Criar e percorrer sao a mesma tela, e nao duas: no desktop o formulario fica
+      ao lado da lista, e nao acima dela, para que a lista comece na primeira
+      dobra mesmo quando ha muitos cursos. Abaixo de `lg` a ordem volta a ser a do
+      documento, com a acao principal primeiro.
+    -->
+    <div class="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_21rem]">
+      <CourseFormularioDeCurso
+        class="lg:sticky lg:top-24 lg:order-2"
+        @criado="aoCriar"
+      />
 
-    <section
-      aria-labelledby="titulo-da-lista"
-      class="flex flex-col gap-4"
-    >
-      <h2
+      <UiSecaoDaTela
         id="titulo-da-lista"
-        class="text-lg font-semibold"
+        titulo="Seus cursos"
+        class="lg:order-1"
       >
-        Cursos
-      </h2>
-
-      <UiEstadoCarregando
-        v-if="carregando"
-        rotulo="Carregando seus cursos..."
-      />
-
-      <!--
-        A nova tentativa repete **somente** a leitura: `carregar` nao cria nada, e
-        a pagina pedida continua sendo a que estava em `pagina`.
-      -->
-      <UiEstadoDeFalha
-        v-else-if="erro"
-        :erro="erro"
-        titulo="Nao foi possivel carregar seus cursos"
-        @nova-tentativa="carregar"
-      />
-
-      <div
-        v-else-if="cursos.length === 0"
-        data-vazio="cursos"
-      >
-        <UiEstadoVazio
-          titulo="Voce ainda nao tem cursos"
-          descricao="Crie o primeiro curso pelo formulario acima para comecar a montar a estrutura."
-        />
-      </div>
-
-      <template v-else>
-        <CourseListaDeCursos
-          :cursos="cursos"
-          base="/producer/courses"
+        <UiEstadoCarregando
+          v-if="carregando"
+          rotulo="Carregando seus cursos..."
         />
 
-        <UiNavegacaoDePaginas
-          v-if="paginacao && paginacao.last_page > 1"
-          :atual="paginacao.current_page"
-          :ultima="paginacao.last_page"
-          @ir="irPara"
+        <!--
+          A nova tentativa repete **somente** a leitura: `carregar` nao cria nada, e
+          a pagina pedida continua sendo a que estava em `pagina`.
+        -->
+        <UiEstadoDeFalha
+          v-else-if="erro"
+          :erro="erro"
+          titulo="Nao foi possivel carregar seus cursos"
+          @nova-tentativa="carregar"
         />
-      </template>
-    </section>
-  </main>
+
+        <div
+          v-else-if="cursos.length === 0"
+          data-vazio="cursos"
+        >
+          <UiEstadoVazio
+            titulo="Voce ainda nao tem cursos"
+            descricao="Crie o primeiro curso pelo formulario desta tela para comecar a montar a estrutura."
+          />
+        </div>
+
+        <template v-else>
+          <CourseListaDeCursos
+            :cursos="cursos"
+            base="/producer/courses"
+          />
+
+          <UiNavegacaoDePaginas
+            v-if="paginacao && paginacao.last_page > 1"
+            :atual="paginacao.current_page"
+            :ultima="paginacao.last_page"
+            @ir="irPara"
+          />
+        </template>
+      </UiSecaoDaTela>
+    </div>
+  </UiPagina>
 </template>

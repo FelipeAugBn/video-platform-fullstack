@@ -16,11 +16,20 @@ withDefaults(defineProps<{
   rotulo?: string
   rotuloPendente?: string
   desabilitado?: boolean
+  /**
+   * Ocupar a largura toda.
+   *
+   * Verdadeiro no formulario que e o assunto da tela, e falso no que cabe numa
+   * linha ao lado do campo — um botao esticado ali sugeriria um bloco maior do
+   * que ele e. Nao muda nada alem da largura.
+   */
+  bloco?: boolean
 }>(), {
   pendente: false,
   rotulo: 'Enviar',
   rotuloPendente: 'Enviando...',
   desabilitado: false,
+  bloco: true,
 })
 </script>
 
@@ -32,7 +41,7 @@ withDefaults(defineProps<{
     :aria-busy="pendente"
     data-estado="acao"
     :data-pendente="pendente ? 'sim' : 'nao'"
-    block
+    :block="bloco"
   >
     {{ pendente ? rotuloPendente : rotulo }}
   </UButton>

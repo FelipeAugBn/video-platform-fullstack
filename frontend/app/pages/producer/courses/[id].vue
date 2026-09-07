@@ -99,20 +99,17 @@ onMounted(() => {
 </script>
 
 <template>
-  <main class="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
+  <UiPagina>
     <!--
       Fora da regiao que alterna de estado: quando a leitura falha, o caminho de
       volta continua disponivel.
     -->
-    <p class="text-sm">
-      <NuxtLink
-        to="/producer/courses"
-        data-acao="voltar-para-cursos"
-        class="underline-offset-4 hover:underline"
-      >
-        Voltar para meus cursos
-      </NuxtLink>
-    </p>
+    <UiTrilha
+      rotulo="Meus cursos"
+      destino="/producer/courses"
+      acao="voltar-para-cursos"
+      :atual="estrutura?.title"
+    />
 
     <UiEstadoDeSucesso
       v-if="confirmacao"
@@ -133,54 +130,48 @@ onMounted(() => {
     />
 
     <template v-else-if="estrutura">
-      <header
+      <UiCabecalhoDePagina
         data-curso
         :data-curso-id="estrutura.id"
-        class="flex flex-col gap-2"
+        :titulo="estrutura.title"
+        :descricao="estrutura.description"
       >
-        <div class="flex flex-wrap items-center gap-3">
-          <h1 class="text-2xl font-semibold">
-            {{ estrutura.title }}
-          </h1>
-
+        <template #etiquetas>
           <CourseEtiquetaDeEstado :estado="estrutura.state" />
-        </div>
+        </template>
 
-        <p class="text-sm text-muted">
-          {{ estrutura.description }}
-        </p>
+        <template #apoio>
+          <p class="text-xs text-muted">
+            Criado em
+            <time :datetime="estrutura.created_at">{{ formatarDataHora(estrutura.created_at) }}</time>
+          </p>
+        </template>
+      </UiCabecalhoDePagina>
 
-        <p class="text-xs text-muted">
-          Criado em
-          <time :datetime="estrutura.created_at">{{ formatarDataHora(estrutura.created_at) }}</time>
-        </p>
-      </header>
-
-      <section
-        aria-labelledby="titulo-dos-modulos"
-        class="flex flex-col gap-4"
+      <!--
+        A descricao da secao e o unico lugar em que a jornada do video e contada
+        por extenso. Ela e texto fixo: nao consulta estado nenhum e nao promete
+        prazo, so nomeia a ordem das etapas que a tela mostra logo abaixo.
+      -->
+      <UiSecaoDaTela
+        id="titulo-dos-modulos"
+        titulo="Modulos e aulas"
+        descricao="Os modulos organizam as aulas do curso. Depois do processamento, voce pode conferir o video e publicar a aula; a conferencia e opcional."
       >
-        <h2
-          id="titulo-dos-modulos"
-          class="text-lg font-semibold"
-        >
-          Modulos
-        </h2>
-
         <div
           v-if="estrutura.modules.length === 0"
           data-vazio="modulos"
         >
           <UiEstadoVazio
             titulo="Este curso ainda nao tem modulos"
-            descricao="Crie o primeiro modulo pelo formulario abaixo para comecar a organizar as aulas."
+            descricao="Crie o primeiro modulo pelo formulario desta tela para comecar a organizar as aulas."
           />
         </div>
 
         <ol
           v-else
           data-lista="modulos"
-          class="flex flex-col gap-4"
+          class="flex flex-col gap-5"
         >
           <ModuleCartaoDeModulo
             v-for="modulo in estrutura.modules"
@@ -195,7 +186,7 @@ onMounted(() => {
           :curso-id="cursoId"
           @criado="aoCriarModulo"
         />
-      </section>
+      </UiSecaoDaTela>
     </template>
-  </main>
+  </UiPagina>
 </template>

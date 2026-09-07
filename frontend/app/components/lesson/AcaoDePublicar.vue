@@ -258,9 +258,9 @@ function absorverRecusa(falha: ErroDeApi): void {
       :loading="enviando"
       :disabled="enviando"
       :aria-busy="enviando"
-      size="sm"
       icon="i-lucide-badge-check"
       data-acao="publicar"
+      class="self-start"
       @click="publicar"
     >
       {{ enviando ? 'Publicando...' : 'Publicar aula' }}

@@ -35,31 +35,43 @@ defineProps<{ reproducao: Reproducao }>()
 <template>
   <figure
     data-reproducao
-    class="flex flex-col gap-2"
+    class="flex flex-col gap-3"
   >
-    <video
-      controls
-      preload="metadata"
-      playsinline
-      aria-label="Video da aula"
-      data-reprodutor
-      class="w-full rounded-lg border border-default bg-elevated"
-    >
-      <source
-        :src="reproducao.playback_url"
-        :type="reproducao.content_type"
-        data-fonte
+    <!--
+      A moldura fixa a proporcao antes de o video carregar: sem ela a tela salta
+      quando os metadados chegam e o elemento assume a altura real. O fundo
+      escuro e constante nos dois temas porque ele e o vazio da imagem, e nao uma
+      superficie da interface.
+    -->
+    <div class="overflow-hidden rounded-xl border border-default bg-neutral-950">
+      <video
+        controls
+        preload="metadata"
+        playsinline
+        aria-label="Video da aula"
+        data-reprodutor
+        class="block aspect-video w-full"
       >
+        <source
+          :src="reproducao.playback_url"
+          :type="reproducao.content_type"
+          data-fonte
+        >
 
-      <!--
-        O texto so aparece onde o elemento nao existe. Ele nao repete a URL: um
-        navegador sem `<video>` tambem nao deveria receber um link direto para o
-        objeto assinado.
-      -->
-      Este navegador nao consegue reproduzir video.
-    </video>
+        <!--
+          O texto so aparece onde o elemento nao existe. Ele nao repete a URL: um
+          navegador sem `<video>` tambem nao deveria receber um link direto para o
+          objeto assinado.
+        -->
+        Este navegador nao consegue reproduzir video.
+      </video>
+    </div>
 
-    <figcaption class="text-xs text-muted">
+    <!--
+      O prazo e informacao de apoio: ele explica uma interrupcao futura sem
+      disputar atencao com o video, que e o motivo da tela.
+    -->
+    <figcaption class="text-xs leading-relaxed text-muted">
       O acesso a este video expira em
       <time :datetime="reproducao.expires_at">{{ formatarDataHora(reproducao.expires_at) }}</time>.
       Depois disso, recarregue a pagina para continuar assistindo.

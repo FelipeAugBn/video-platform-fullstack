@@ -116,12 +116,18 @@ async function submeter(): Promise<void> {
   <form
     novalidate
     data-formulario="curso"
-    class="flex flex-col gap-4 rounded-lg border border-default p-4"
+    class="flex flex-col gap-5 rounded-xl border border-default bg-default p-5 shadow-xs"
     @submit.prevent="submeter"
   >
-    <h2 class="text-base font-semibold">
-      Novo curso
-    </h2>
+    <div class="flex flex-col gap-1.5">
+      <h2 class="text-base font-semibold text-highlighted">
+        Novo curso
+      </h2>
+
+      <p class="text-sm leading-relaxed text-muted">
+        Comece pelo titulo e uma descricao curta. Os modulos e as aulas sao montados depois, dentro do curso.
+      </p>
+    </div>
 
     <div
       v-if="erroGeral"
@@ -135,14 +141,12 @@ async function submeter(): Promise<void> {
       />
     </div>
 
-    <div>
-      <label
-        :for="ID_TITULO"
-        class="mb-1 block text-sm font-medium"
-      >
-        Titulo
-      </label>
-
+    <UiCampo
+      :campo="ID_TITULO"
+      rotulo="Titulo"
+      :erro-id="ID_ERRO_TITULO"
+      :mensagens="errosDeTitulo"
+    >
       <UInput
         :id="ID_TITULO"
         v-model="titulo"
@@ -152,21 +156,14 @@ async function submeter(): Promise<void> {
         :aria-describedby="errosDeTitulo.length > 0 ? ID_ERRO_TITULO : undefined"
         class="w-full"
       />
+    </UiCampo>
 
-      <UiErroDeCampo
-        :id="ID_ERRO_TITULO"
-        :mensagens="errosDeTitulo"
-      />
-    </div>
-
-    <div>
-      <label
-        :for="ID_DESCRICAO"
-        class="mb-1 block text-sm font-medium"
-      >
-        Descricao
-      </label>
-
+    <UiCampo
+      :campo="ID_DESCRICAO"
+      rotulo="Descricao"
+      :erro-id="ID_ERRO_DESCRICAO"
+      :mensagens="errosDeDescricao"
+    >
       <UTextarea
         :id="ID_DESCRICAO"
         v-model="descricao"
@@ -177,12 +174,7 @@ async function submeter(): Promise<void> {
         :aria-describedby="errosDeDescricao.length > 0 ? ID_ERRO_DESCRICAO : undefined"
         class="w-full"
       />
-
-      <UiErroDeCampo
-        :id="ID_ERRO_DESCRICAO"
-        :mensagens="errosDeDescricao"
-      />
-    </div>
+    </UiCampo>
 
     <UiBotaoDeEnvio
       :pendente="enviando"

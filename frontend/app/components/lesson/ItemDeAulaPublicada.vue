@@ -21,10 +21,15 @@ defineProps<{ aula: AulaDoConsumidor }>()
 </script>
 
 <template>
+  <!--
+    A linha inteira e o alvo, sem um segundo link: a camada absoluta do link do
+    titulo cobre a linha, entao o alvo cresce sem repetir a aula na lista de
+    links de um leitor de tela.
+  -->
   <li
     data-aula
     :data-aula-id="aula.id"
-    class="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3"
+    class="group relative -mx-2 flex gap-3 rounded-md border-t border-default px-2 py-3 transition-colors first:border-t-0 hover:bg-muted has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-offset-2 has-[a:focus-visible]:outline-primary"
   >
     <!--
       A posicao exibida e a que veio na resposta, e nao o indice do laco: a
@@ -38,19 +43,25 @@ defineProps<{ aula: AulaDoConsumidor }>()
       {{ aula.position }}.
     </span>
 
-    <span class="grow text-sm font-medium">
-      <NuxtLink
-        :to="`/catalog/lessons/${aula.id}`"
-        data-acao="abrir-aula"
-        class="underline-offset-4 hover:underline focus-visible:underline"
-      >
-        {{ aula.title }}
-      </NuxtLink>
-    </span>
+    <!--
+      Titulo e data dividem a coluna a direita da numeracao. Em telas estreitas a
+      data desce **dentro** dela, alinhada ao titulo da aula a que pertence.
+    -->
+    <div class="flex min-w-0 grow flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
+      <h4 class="min-w-0 text-sm font-medium text-highlighted">
+        <NuxtLink
+          :to="`/catalog/lessons/${aula.id}`"
+          data-acao="abrir-aula"
+          class="after:absolute after:inset-0 group-hover:text-primary group-hover:underline focus-visible:outline-none"
+        >
+          {{ aula.title }}
+        </NuxtLink>
+      </h4>
 
-    <p class="text-xs text-muted">
-      Publicada em
-      <time :datetime="aula.published_at">{{ formatarDataHora(aula.published_at) }}</time>
-    </p>
+      <p class="shrink-0 text-xs text-muted">
+        Publicada em
+        <time :datetime="aula.published_at">{{ formatarDataHora(aula.published_at) }}</time>
+      </p>
+    </div>
   </li>
 </template>

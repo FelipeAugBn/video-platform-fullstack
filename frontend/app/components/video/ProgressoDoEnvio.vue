@@ -21,13 +21,13 @@ defineProps<{
   <div
     data-progresso
     :data-partes="`${enviadas}/${total}`"
-    class="flex flex-col gap-1"
+    class="flex flex-col gap-1.5"
   >
     <progress
       :value="enviadas"
       :max="total"
       aria-label="Progresso do envio do video"
-      class="h-2 w-full"
+      class="h-1.5 w-full"
     />
 
     <!-- O texto repete a informacao da barra porque nem todo mundo consegue ler

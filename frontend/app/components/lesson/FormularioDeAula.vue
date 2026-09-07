@@ -85,7 +85,7 @@ async function submeter(): Promise<void> {
     novalidate
     data-formulario="aula"
     :data-formulario-modulo="moduloId"
-    class="flex flex-col gap-3 border-t border-default pt-3"
+    class="flex flex-col gap-3"
     @submit.prevent="submeter"
   >
     <div
@@ -100,34 +100,32 @@ async function submeter(): Promise<void> {
       />
     </div>
 
-    <div>
-      <label
-        :for="idTitulo"
-        class="mb-1 block text-sm font-medium"
-      >
-        Nova aula
-      </label>
-
-      <UInput
-        :id="idTitulo"
-        v-model="titulo"
-        name="title"
-        :disabled="enviando"
-        :aria-invalid="errosDeTitulo.length > 0"
-        :aria-describedby="errosDeTitulo.length > 0 ? idErroTitulo : undefined"
-        class="w-full"
-      />
-
-      <UiErroDeCampo
-        :id="idErroTitulo"
+    <div class="flex max-w-2xl flex-col gap-3 sm:flex-row sm:items-end">
+      <UiCampo
+        :campo="idTitulo"
+        rotulo="Nova aula"
+        :erro-id="idErroTitulo"
         :mensagens="errosDeTitulo"
+        class="min-w-0 grow"
+      >
+        <UInput
+          :id="idTitulo"
+          v-model="titulo"
+          name="title"
+          :disabled="enviando"
+          :aria-invalid="errosDeTitulo.length > 0"
+          :aria-describedby="errosDeTitulo.length > 0 ? idErroTitulo : undefined"
+          class="w-full"
+        />
+      </UiCampo>
+
+      <UiBotaoDeEnvio
+        :pendente="enviando"
+        :bloco="false"
+        rotulo="Criar aula"
+        rotulo-pendente="Criando..."
+        class="w-full shrink-0 justify-center sm:w-auto"
       />
     </div>
-
-    <UiBotaoDeEnvio
-      :pendente="enviando"
-      rotulo="Criar aula"
-      rotulo-pendente="Criando..."
-    />
   </form>
 </template>

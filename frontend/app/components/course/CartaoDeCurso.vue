@@ -29,26 +29,35 @@ defineProps<{ curso: Curso, base: string }>()
 </script>
 
 <template>
+  <!--
+    O cartao inteiro e a area de clique, sem um segundo link: a camada absoluta
+    do link do titulo cobre o cartao, entao o alvo cresce sem que a lista de
+    links do leitor de tela ganhe uma entrada repetida. O anel de foco e
+    desenhado pelo cartao, para que o contorno acompanhe o alvo real.
+  -->
   <li
     data-curso
     :data-curso-id="curso.id"
-    class="flex flex-col gap-2 rounded-lg border border-default p-4"
+    class="group relative flex flex-col gap-3 rounded-xl border border-default bg-default p-5 transition-colors hover:border-accented has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-offset-2 has-[a:focus-visible]:outline-primary"
   >
-    <div class="flex flex-wrap items-center gap-2">
-      <h3 class="text-base font-semibold">
+    <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+      <h3 class="text-base leading-snug font-semibold text-highlighted">
         <NuxtLink
           :to="`${base}/${curso.id}`"
           data-acao="abrir-curso"
-          class="underline-offset-4 hover:underline focus-visible:underline"
+          class="after:absolute after:inset-0 group-hover:text-primary focus-visible:outline-none"
         >
           {{ curso.title }}
         </NuxtLink>
       </h3>
 
-      <CourseEtiquetaDeEstado :estado="curso.state" />
+      <CourseEtiquetaDeEstado
+        :estado="curso.state"
+        class="shrink-0"
+      />
     </div>
 
-    <p class="text-sm text-muted">
+    <p class="line-clamp-3 text-sm leading-relaxed text-muted">
       {{ curso.description }}
     </p>
 
@@ -56,7 +65,7 @@ defineProps<{ curso: Curso, base: string }>()
       O instante legivel por maquina fica em `datetime`, e o texto formatado no
       corpo: o primeiro nao depende do fuso de quem le, o segundo depende.
     -->
-    <p class="text-xs text-muted">
+    <p class="mt-auto border-t border-default pt-3 text-xs text-muted">
       Criado em
       <time :datetime="curso.created_at">{{ formatarDataHora(curso.created_at) }}</time>
     </p>

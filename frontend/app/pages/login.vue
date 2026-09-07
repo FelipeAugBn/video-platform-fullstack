@@ -98,113 +98,115 @@ async function submeter(): Promise<void> {
 </script>
 
 <template>
-  <main class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center gap-6 p-6">
-    <header>
-      <h1 class="text-2xl font-semibold">
-        Entrar
-      </h1>
-      <p class="text-sm text-muted">
-        Informe suas credenciais para acessar a plataforma.
-      </p>
-    </header>
-
+  <UiPagina
+    largura="estreita"
+    centralizada
+  >
     <!--
-      Sessao expirada e um estado proprio, e nao acesso negado (RF-UI-014): quem
-      chega aqui desviado de outra tela precisa saber que **tinha** acesso e
-      apenas precisa entrar de novo.
+      Marca, titulo, explicacao e formulario dentro da mesma superficie: a
+      entrada da plataforma e uma composicao unica, e nao um cartao solto sob um
+      titulo. Os estados entram entre a explicacao e os campos, que e onde eles
+      sao lidos antes de a pessoa comecar a digitar.
     -->
-    <UiPainelDeEstado
-      v-if="expirada && erro === null"
-      tom="atencao"
-      titulo="Sua sessao expirou"
-      descricao="Entre novamente para continuar de onde parou."
-      data-estado="sessao-expirada"
-    />
+    <div class="flex flex-col gap-6 rounded-xl border border-default bg-default p-6 shadow-xs sm:p-8">
+      <div class="flex flex-col gap-5">
+        <UiMarca tamanho="grande" />
 
-    <UiEstadoDeSucesso
-      v-if="autenticado"
-      titulo="Autenticado"
-      descricao="Levando voce para a sua area..."
-    />
+        <header class="flex flex-col gap-2 border-t border-default pt-5">
+          <h1 class="titulo-de-pagina">
+            Entrar
+          </h1>
 
-    <form
-      novalidate
-      class="flex flex-col gap-4"
-      @submit.prevent="submeter"
-    >
+          <p class="text-[0.9375rem] leading-relaxed text-toned">
+            Acesse com o e-mail e a senha da sua conta para publicar ou assistir aos cursos.
+          </p>
+        </header>
+      </div>
+
       <!--
-        `tabindex="-1"` para o resumo poder receber foco por codigo sem entrar na
-        ordem de tabulacao: ele e destino de foco depois de uma falha, nao uma
-        parada normal do teclado.
+        Sessao expirada e um estado proprio, e nao acesso negado (RF-UI-014): quem
+        chega aqui desviado de outra tela precisa saber que **tinha** acesso e
+        apenas precisa entrar de novo.
       -->
-      <div
-        v-if="erroGeral"
-        :id="ID_RESUMO"
-        tabindex="-1"
-      >
-        <UiEstadoDeFalha
-          :erro="erroGeral"
-          @nova-tentativa="submeter"
-        />
-      </div>
-
-      <div>
-        <label
-          :for="ID_EMAIL"
-          class="mb-1 block text-sm font-medium"
-        >
-          E-mail
-        </label>
-
-        <UInput
-          :id="ID_EMAIL"
-          v-model="email"
-          type="email"
-          name="email"
-          autocomplete="email"
-          :disabled="enviando"
-          :aria-invalid="errosDeEmail.length > 0"
-          :aria-describedby="errosDeEmail.length > 0 ? ID_ERRO_EMAIL : undefined"
-          class="w-full"
-        />
-
-        <UiErroDeCampo
-          :id="ID_ERRO_EMAIL"
-          :mensagens="errosDeEmail"
-        />
-      </div>
-
-      <div>
-        <label
-          :for="ID_SENHA"
-          class="mb-1 block text-sm font-medium"
-        >
-          Senha
-        </label>
-
-        <UInput
-          :id="ID_SENHA"
-          v-model="senha"
-          type="password"
-          name="password"
-          autocomplete="current-password"
-          :disabled="enviando"
-          :aria-invalid="errosDeSenha.length > 0"
-          :aria-describedby="errosDeSenha.length > 0 ? ID_ERRO_SENHA : undefined"
-          class="w-full"
-        />
-
-        <UiErroDeCampo
-          :id="ID_ERRO_SENHA"
-          :mensagens="errosDeSenha"
-        />
-      </div>
-
-      <UiBotaoDeEnvio
-        :pendente="enviando"
-        rotulo="Entrar"
-        rotulo-pendente="Entrando..."
+      <UiPainelDeEstado
+        v-if="expirada && erro === null"
+        tom="atencao"
+        titulo="Sua sessao expirou"
+        descricao="Entre novamente para continuar de onde parou."
+        data-estado="sessao-expirada"
       />
-    </form>
-  </main>
+
+      <UiEstadoDeSucesso
+        v-if="autenticado"
+        titulo="Sessao iniciada"
+        descricao="Abrindo a sua area..."
+      />
+
+      <form
+        novalidate
+        class="flex flex-col gap-5"
+        @submit.prevent="submeter"
+      >
+        <!--
+          `tabindex="-1"` para o resumo poder receber foco por codigo sem entrar na
+          ordem de tabulacao: ele e destino de foco depois de uma falha, nao uma
+          parada normal do teclado.
+        -->
+        <div
+          v-if="erroGeral"
+          :id="ID_RESUMO"
+          tabindex="-1"
+        >
+          <UiEstadoDeFalha
+            :erro="erroGeral"
+            @nova-tentativa="submeter"
+          />
+        </div>
+
+        <UiCampo
+          :campo="ID_EMAIL"
+          rotulo="E-mail"
+          :erro-id="ID_ERRO_EMAIL"
+          :mensagens="errosDeEmail"
+        >
+          <UInput
+            :id="ID_EMAIL"
+            v-model="email"
+            type="email"
+            name="email"
+            autocomplete="email"
+            :disabled="enviando"
+            :aria-invalid="errosDeEmail.length > 0"
+            :aria-describedby="errosDeEmail.length > 0 ? ID_ERRO_EMAIL : undefined"
+            class="w-full"
+          />
+        </UiCampo>
+
+        <UiCampo
+          :campo="ID_SENHA"
+          rotulo="Senha"
+          :erro-id="ID_ERRO_SENHA"
+          :mensagens="errosDeSenha"
+        >
+          <UInput
+            :id="ID_SENHA"
+            v-model="senha"
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            :disabled="enviando"
+            :aria-invalid="errosDeSenha.length > 0"
+            :aria-describedby="errosDeSenha.length > 0 ? ID_ERRO_SENHA : undefined"
+            class="w-full"
+          />
+        </UiCampo>
+
+        <UiBotaoDeEnvio
+          :pendente="enviando"
+          rotulo="Entrar"
+          rotulo-pendente="Entrando..."
+        />
+      </form>
+    </div>
+  </UiPagina>
 </template>

@@ -17,50 +17,60 @@ const emit = defineEmits<{ criada: [Aula], publicada: [Aula] }>()
 </script>
 
 <template>
+  <!--
+    O modulo e uma faixa com cabecalho proprio, e nao mais um cartao dentro do
+    cartao da pagina: as aulas ficam em linhas separadas por regua, e o unico
+    contorno da regiao e o do proprio modulo. Empilhar bordas aqui e o que torna
+    a estrutura de um curso ilegivel.
+  -->
   <li
     data-modulo
     :data-modulo-id="modulo.id"
-    class="flex flex-col gap-3 rounded-lg border border-default p-4"
+    class="overflow-hidden rounded-xl border border-default bg-default"
   >
-    <div class="flex items-baseline gap-3">
+    <div class="flex items-center gap-3 border-b border-default bg-muted px-4 py-3 sm:px-5">
       <span
         data-modulo-posicao
-        class="text-xs text-muted tabular-nums"
+        class="grid size-7 shrink-0 place-items-center rounded-md bg-primary/10 text-xs font-semibold text-primary tabular-nums"
       >
-        {{ modulo.position }}.
+        {{ modulo.position }}
       </span>
 
-      <h3 class="text-base font-semibold">
+      <h3 class="min-w-0 text-base font-semibold text-highlighted">
         {{ modulo.title }}
       </h3>
     </div>
 
-    <div
-      v-if="modulo.lessons.length === 0"
-      data-vazio="aulas"
-    >
-      <UiEstadoVazio
-        titulo="Nenhuma aula neste modulo"
-        descricao="Crie a primeira aula pelo campo abaixo."
-      />
+    <div class="px-4 py-4 sm:px-5">
+      <div
+        v-if="modulo.lessons.length === 0"
+        data-vazio="aulas"
+      >
+        <UiEstadoVazio
+          titulo="Nenhuma aula neste modulo"
+          descricao="Crie a primeira aula no campo abaixo para comecar a enviar o video."
+        />
+      </div>
+
+      <ol
+        v-else
+        data-lista="aulas"
+        class="divide-y divide-default"
+      >
+        <LessonItemDeAula
+          v-for="aula in modulo.lessons"
+          :key="aula.id"
+          :aula="aula"
+          @publicada="emit('publicada', $event)"
+        />
+      </ol>
     </div>
 
-    <ol
-      v-else
-      data-lista="aulas"
-      class="divide-y divide-default"
-    >
-      <LessonItemDeAula
-        v-for="aula in modulo.lessons"
-        :key="aula.id"
-        :aula="aula"
-        @publicada="emit('publicada', $event)"
+    <div class="border-t border-default bg-muted px-4 py-4 sm:px-5">
+      <LessonFormularioDeAula
+        :modulo-id="modulo.id"
+        @criada="emit('criada', $event)"
       />
-    </ol>
-
-    <LessonFormularioDeAula
-      :modulo-id="modulo.id"
-      @criada="emit('criada', $event)"
-    />
+    </div>
   </li>
 </template>

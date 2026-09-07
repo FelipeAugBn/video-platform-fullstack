@@ -95,7 +95,6 @@ const mostrarNovaTentativa = computed(() => props.permitirNovaTentativa ?? RECUP
       <UButton
         color="neutral"
         variant="outline"
-        size="sm"
         icon="i-lucide-rotate-ccw"
         data-acao="nova-tentativa"
         @click="$emit('novaTentativa')"

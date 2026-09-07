@@ -76,15 +76,25 @@ async function submeter(): Promise<void> {
 </script>
 
 <template>
+  <!--
+    Borda tracejada porque o bloco e um lugar vazio a preencher, e nao mais um
+    modulo: ele fecha a lista sem parecer um item dela.
+  -->
   <form
     novalidate
     data-formulario="modulo"
-    class="flex flex-col gap-3 rounded-lg border border-dashed border-default p-4"
+    class="flex flex-col gap-3 rounded-xl border border-dashed border-accented bg-default p-4 sm:p-5"
     @submit.prevent="submeter"
   >
-    <h3 class="text-sm font-semibold">
-      Novo modulo
-    </h3>
+    <div class="flex flex-col gap-1">
+      <h3 class="text-sm font-semibold text-highlighted">
+        Novo modulo
+      </h3>
+
+      <p class="text-xs text-muted">
+        Ele entra no fim da lista, com a proxima posicao livre do curso.
+      </p>
+    </div>
 
     <div
       v-if="erroGeral"
@@ -98,34 +108,32 @@ async function submeter(): Promise<void> {
       />
     </div>
 
-    <div>
-      <label
-        :for="ID_TITULO"
-        class="mb-1 block text-sm font-medium"
-      >
-        Titulo do modulo
-      </label>
-
-      <UInput
-        :id="ID_TITULO"
-        v-model="titulo"
-        name="title"
-        :disabled="enviando"
-        :aria-invalid="errosDeTitulo.length > 0"
-        :aria-describedby="errosDeTitulo.length > 0 ? ID_ERRO_TITULO : undefined"
-        class="w-full"
-      />
-
-      <UiErroDeCampo
-        :id="ID_ERRO_TITULO"
+    <div class="flex max-w-2xl flex-col gap-3 sm:flex-row sm:items-end">
+      <UiCampo
+        :campo="ID_TITULO"
+        rotulo="Titulo do modulo"
+        :erro-id="ID_ERRO_TITULO"
         :mensagens="errosDeTitulo"
+        class="min-w-0 grow"
+      >
+        <UInput
+          :id="ID_TITULO"
+          v-model="titulo"
+          name="title"
+          :disabled="enviando"
+          :aria-invalid="errosDeTitulo.length > 0"
+          :aria-describedby="errosDeTitulo.length > 0 ? ID_ERRO_TITULO : undefined"
+          class="w-full"
+        />
+      </UiCampo>
+
+      <UiBotaoDeEnvio
+        :pendente="enviando"
+        :bloco="false"
+        rotulo="Criar modulo"
+        rotulo-pendente="Criando..."
+        class="w-full shrink-0 justify-center sm:w-auto"
       />
     </div>
-
-    <UiBotaoDeEnvio
-      :pendente="enviando"
-      rotulo="Criar modulo"
-      rotulo-pendente="Criando..."
-    />
   </form>
 </template>

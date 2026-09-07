@@ -21,7 +21,7 @@ defineProps<{
     :id="id"
     role="alert"
     data-estado="erro-de-campo"
-    class="mt-1 space-y-1 text-sm text-error"
+    class="space-y-1 text-sm font-medium text-error"
   >
     <li
       v-for="mensagem in mensagens"

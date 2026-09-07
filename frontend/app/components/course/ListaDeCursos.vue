@@ -17,7 +17,7 @@ defineProps<{ cursos: Curso[], base: string }>()
 <template>
   <ul
     data-lista="cursos"
-    class="flex flex-col gap-3"
+    class="grid gap-4 sm:grid-cols-2"
   >
     <CourseCartaoDeCurso
       v-for="curso in cursos"

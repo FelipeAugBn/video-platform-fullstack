@@ -19,19 +19,27 @@ withDefaults(defineProps<{
 </script>
 
 <template>
+  <!--
+    Mesma geometria dos demais paineis de estado: caixa, raio e respiro iguais,
+    para que a troca de "carregando" por "vazio" ou por "falhou" nao mova a
+    pagina inteira quando a resposta chega.
+  -->
   <div
     role="status"
     aria-busy="true"
     aria-live="polite"
     data-estado="carregando"
-    class="flex flex-col gap-3"
+    class="flex flex-col gap-3 rounded-lg border border-default bg-default p-4"
   >
-    <span class="text-sm text-muted">{{ rotulo }}</span>
+    <span class="text-sm font-medium text-muted">{{ rotulo }}</span>
 
-    <USkeleton
-      v-for="linha in linhas"
-      :key="linha"
-      class="h-6 w-full"
-    />
+    <div class="flex flex-col gap-2">
+      <USkeleton
+        v-for="linha in linhas"
+        :key="linha"
+        class="h-4"
+        :class="linha === linhas ? 'w-2/3' : 'w-full'"
+      />
+    </div>
   </div>
 </template>
