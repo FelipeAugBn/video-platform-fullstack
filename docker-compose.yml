@@ -457,6 +457,18 @@ services:
       # recriacao do container, que nao instala nada ao subir.
       - ./frontend:/app
 
+      # O contrato da API, somente leitura.
+      #
+      # E dele que os tipos do cliente sao gerados (`npm run generate:types`), e
+      # ele vive fora de `frontend/`. Sem esta montagem o comando so funcionaria
+      # com um `--volume` avulso na linha de execucao, e um comando que precisa
+      # de argumento extra para funcionar e um comando que alguem vai rodar
+      # errado.
+      #
+      # `:ro` porque a geracao **le** o contrato e nunca o altera: quem muda o
+      # contrato e a tarefa que mexe na API, e o frontend deriva dele.
+      - ./docs:/docs:ro
+
     working_dir: /app
 
     # `--host 0.0.0.0` faz o servidor escutar em todas as interfaces do container;

@@ -1,0 +1,12 @@
+/*
+ * Entrada unica de estilo da aplicacao.
+ *
+ * A ordem importa: o Tailwind precisa vir antes para que os estilos da
+ * biblioteca de componentes possam se apoiar nos utilitarios dele.
+ *
+ * Nao ha CSS proprio aqui. O acabamento visual vem dos componentes da
+ * biblioteca, e o desafio nao pede acabamento comercial (RF-UI-016) — um tema
+ * proprio seria trabalho que nao e avaliado, competindo com as jornadas.
+ */
+@import "tailwindcss";
+@import "@nuxt/ui";

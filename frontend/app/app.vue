@@ -1,10 +1,10 @@
 <template>
   <!--
-    Componente raiz. Existe para o Nuxt ter um ponto de montagem valido e
-    conseguir construir; ainda nao ha tela.
-
-    As paginas entram nas tarefas de interface, junto com o `<NuxtPage />` que
-    vai renderiza-las.
+    `UApp` e a raiz exigida pela biblioteca de componentes: e ela que fornece o
+    contexto de sobreposicoes — modais, tooltips e notificacoes — e as
+    preferencias globais. Sem ela, esses componentes montam sem destino.
   -->
-  <div />
+  <UApp>
+    <NuxtPage />
+  </UApp>
 </template>

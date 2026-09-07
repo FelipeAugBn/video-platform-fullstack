@@ -1523,7 +1523,7 @@ fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 ## Fase 13 — Fundação do frontend
 
-- [ ] **T078** Fundação do frontend, qualidade, cliente HTTP, sessão e login
+- [x] **T078** Fundação do frontend, qualidade, cliente HTTP, sessão e login
   - **Objetivo:** o frontend subindo, falando com a API com sessão e CSRF, com
     tipos derivados do contrato, vocabulário de estados e a primeira tela.
   - **Arquivos previstos:** `frontend/nuxt.config.ts`, `frontend/app/app.vue`,

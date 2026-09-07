@@ -13,6 +13,9 @@ node_modules
 logs
 *.log
 
+# Local Nuxt setup state
+.nuxtrc
+
 # Misc
 .DS_Store
 .fleet
