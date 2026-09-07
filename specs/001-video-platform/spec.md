@@ -456,6 +456,20 @@ navegador, com URLs pré-assinadas por parte emitidas pelo backend; a conclusão
 verificada no servidor antes de qualquer transição de estado. Parâmetros e fluxo
 em `plan.md` §11 (ABERTO-002); verificação em §12 (ABERTO-003).
 
+`[DECISÃO]` **O sistema de arquivos local da aplicação não é servido por HTTP.**
+Os objetos de vídeo são gravados e lidos exclusivamente pelo storage de objetos,
+tanto no envio quanto na reprodução: o navegador nunca busca um arquivo de mídia
+em um endereço da aplicação. Nenhuma rota de leitura ou de escrita sobre o disco
+local faz parte da superfície exposta, e a ausência delas é verificada por teste.
+
+A decisão não responde a uma exposição pública explorável identificada — as
+rotas que o framework registrava por padrão exigiam assinatura válida e recusavam
+qualquer requisição sem ela. É uma redução preventiva de superfície e uma medida
+de coerência contratual: um endereço declarado sem caso de uso fica fora do
+contrato publicado, fora das verificações de autorização e fora da documentação —
+e é exatamente o tipo de rota que ninguém revisa porque ninguém sabe que ela
+existe. Registro em `plan.md` §§11.1 e 10.4.
+
 ### 9.4 Ciclo de vida do vídeo
 
 ```

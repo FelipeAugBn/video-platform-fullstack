@@ -1953,6 +1953,9 @@ sendo os únicos do comando normal.
   - **Objetivo:** fechar a entrega conferindo coerência e higiene.
   - **Arquivos previstos:** `specs/001-video-platform/spec.md`,
     `specs/001-video-platform/plan.md`, `specs/001-video-platform/tasks.md`.
+    A revisão acrescentou `backend/config/filesystems.php` e
+    `backend/tests/Feature/Shared/HttpSurfaceTest.php`, pelo motivo registrado
+    abaixo.
   - **Requisitos:** RNF-010, RNF-012, RNF-018.
   - **Implementação:** conferir que nenhum comportamento implementado diverge da
     spec sem que ela tenha sido atualizada, que todo critério de aceitação tem
@@ -1964,6 +1967,42 @@ sendo os únicos do comando normal.
     remota da pipeline (T104), a reprodução a partir de clone limpo (T105) e a
     conferência visual em largura reduzida (T093). A entrega não fecha com
     qualquer uma delas pendente.
+
+    **Achado da revisão — duas rotas registradas sem caso de uso.** A auditoria
+    da superfície HTTP encontrou `GET /storage/{path}` e `PUT /storage/{path}`
+    entre as rotas da aplicação. Elas não foram escritas por nenhuma tarefa: o
+    esqueleto do framework traz `serve => true` no disco local do
+    `config/filesystems.php`, e essa opção as registra sozinha.
+
+    Nesta arquitetura elas não têm caso de uso. Nenhum vídeo é gravado no disco
+    local — todo objeto vive no armazenamento compatível com S3, alcançado pela
+    porta `ObjectStorage`, e o navegador recebe URL pré-assinada em vez de buscar
+    arquivo num endereço da aplicação. As duas ficavam fora do contrato OpenAPI,
+    fora dos testes de autorização e fora da documentação.
+
+    **Decisão aprovada:** `serve => false`. A motivação é superfície mínima e
+    coerência contratual — a lista de rotas registradas passa a ser exatamente a
+    do contrato mais o endpoint de prontidão. Registro em `spec.md` §9.3 e
+    `plan.md` §§10.4 e 11.1. Nada no envio multipart, na reprodução, nos assets
+    públicos ou no adapter S3 depende da opção, e a suíte completa confirma.
+
+    **Prova da ausência:** `Tests\Feature\Shared\HttpSurfaceTest` afirma a
+    superfície por igualdade contra uma lista fechada escrita no próprio teste —
+    22 operações, sendo `GET /up` a única fora de `/api` e `/sanctum`. Verifica
+    também que nenhuma URI começa por `storage/`, que os nomes de rota
+    `storage.local` e `storage.local.upload` não existem, que os dois endereços
+    não respondem, que os pontos de entrada oficiais continuam registrados e que
+    `HEAD` segue derivado de cada `GET`. Verificado por regressão: com
+    `serve => true`, oito dos catorze testes de então reprovaram, e a diferença
+    relatada eram exatamente as duas rotas.
+
+    **O teste não lê o `docs/openapi.yaml`.** A correspondência entre a lista
+    fechada e as 21 operações do contrato foi conferida **manualmente** nesta
+    revisão, e é reconferida sempre que um dos dois lados mudar. Um mecanismo
+    automático ligando os dois seria uma segunda validação de contrato, com
+    política própria de sincronização — a duplicação que `plan.md` §10.5
+    descarta. A validação do documento em si continua sendo `make openapi-lint`,
+    que roda separado.
   - **Testes/validação:** três frentes, porque nenhuma sozinha basta.
 
     1. **Varredura textual**, ignorando binários e tratando nomes com espaço:
@@ -2203,6 +2242,78 @@ vários, e a coluna de validação nomeia a tarefa em que a prova é executada.
 | Especificação e Git | RNF-012, RNF-014, RNF-015 | T109 | T109 |
 | Entrega | RNF-016, RNF-019 | T105 | T105, T109 |
 | Simplicidade | RNF-013 | Toda a decomposição | T109 |
+
+### Requisitos com destino transitivo
+
+A revisão final conferiu, identificador por identificador, os **214** definidos
+na `spec.md`:
+
+| Família | Definidos |
+| --- | --- |
+| `RF` | 114 |
+| `RN` | 36 |
+| `AC` | 30 |
+| `RNF` | 20 |
+| `ABERTO` | 14 |
+
+**Todos têm destino, depois de expandidas as notações de intervalo.** Boa parte
+não é citada uma a uma: as tarefas escrevem `RF-CUR-001 a 005` ou
+`RN-PROP-001 a 003`, e a conferência expandiu cada intervalo antes de comparar.
+Aparecer dentro de um intervalo conta como destino.
+
+Sobraram **catorze** que não apareciam individualmente nem por intervalo em
+nenhuma lista de requisitos. Esta seção dá a cada um deles um mapeamento
+explícito, para que a ausência do nome não seja lida como ausência de cobertura.
+Nenhum dos catorze fica sem tarefa: mesmo os que são decisões de *não* oferecer
+uma operação têm tarefa responsável e teste que afirma a ausência.
+
+**Requisitos de ausência.** São decisões de *não* oferecer uma operação. Cada um
+tem tarefa e tem prova: o teste afirma que a rota não existe, e é ele que faz uma
+rota acrescentada por descuido reprovar em vez de passar despercebida.
+
+| ID | Classificação | Tarefa que a afirma | Prova da ausência |
+| --- | --- | --- | --- |
+| RF-CUR-005 | `[DECISÃO]` sem atualização nem exclusão de curso | T034 | `CourseRoutesTest::test_nao_existe_rota_de_atualizacao_nem_de_exclusao` e `::test_a_colecao_tambem_nao_aceita_verbos_alem_de_get_e_post` |
+| RF-AUL-007 | `[DECISÃO]` sem CRUD adicional de aula | T037 | `CatalogAccessTest::test_nao_existe_atualizacao_nem_exclusao` e `::test_nao_existe_listagem_separada_de_aulas_do_modulo` |
+| RF-MOD-005 | `[OPCIONAL]` reordenação por arrastar e soltar | T037 | `CatalogAccessTest::test_nao_existe_rota_de_reordenacao` |
+
+A superfície HTTP inteira é afirmada por igualdade em
+`HttpSurfaceTest::test_a_superficie_registrada_e_exatamente_a_declarada`, que
+cobre as três ausências acima de uma vez só e acrescenta a do sistema de
+arquivos local (T109).
+
+**Requisito obrigatório que se materializa como limite do simulador.**
+
+| ID | Classificação | Tarefa que o cumpre | Como se cumpre |
+| --- | --- | --- | --- |
+| RF-PROC-005 | `[OBRIGATÓRIO]` não há transcodificação real | T067 | O simulador representa o provedor externo e devolve o desfecho por callback assinado, sem tocar no arquivo. O desafio dispensa a transcodificação explicitamente, e a documentação final a apresenta como limite assumido |
+
+**Requisitos funcionais cobertos transitivamente.** O comportamento é implementado
+e testado sob outro identificador; o que falta é apenas a citação nominal na
+lista de requisitos da tarefa.
+
+| ID | Onde se resolve |
+| --- | --- |
+| RN-PROP-004 | T034 e T037 — módulos e aulas herdam a propriedade do curso, e é o que o isolamento da árvore exercita |
+| RF-AUT-002 | T034, pela verificação de propriedade nas operações de gestão |
+| RF-AUT-003 | T070, pela verificação de concessão nas operações de consumo |
+| RF-AUT-004 | T030 e T070 — a decisão de autorização é sempre refeita no backend |
+| RF-AUL-006 | T053 — a publicação é rota própria, separada da criação da aula |
+| RN-CUR-002 | T053, provado por AC-PROD-006 |
+| RN-CUR-003 | T053 — não existe rota de publicação de curso; o estado é consequência |
+| RF-ERR-012 | T078, sob RF-UI-011 |
+| RF-ERR-013 | T043, T053 e T059 tornam repetíveis, respectivamente, a conclusão do envio, a publicação e a entrega do callback, sem duplicar efeito. São as três operações que RF-ERR-013 nomeia |
+
+**Decisão técnica sem tarefa própria.**
+
+| ID | Onde se resolve |
+| --- | --- |
+| ABERTO-014 | `plan.md` §§11.2 e 19.1. A parte decidida como implementável — recuperação limitada à tentativa atual, com reenvio de parte e renovação de URL — é entregue por T043 no backend e por T088 na interface. Cancelamento, descarte, expiração e retomada entre sessões ficam registrados como limitação consciente |
+
+Duas observações de anotação, sem efeito sobre a cobertura: **AC-PROD-002** e
+**AC-PROD-007** são provados por testes de isolamento de curso, módulo, aula e
+estrutura, mas os arquivos de teste não citam os identificadores no cabeçalho,
+como os demais fazem. A prova existe; a etiqueta, não.
 
 ### Cobertura mínima de testes
 

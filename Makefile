@@ -2,10 +2,12 @@
 #
 #     make up
 #
-# Nada e exigido da maquina alem de Docker. As dependencias de PHP e de Node sao
-# instaladas pelas proprias imagens do projeto, em containers descartaveis: nem
-# interpretador, nem gerenciador de pacotes, nem cliente de banco precisam
-# existir no host.
+# O host precisa de tres ferramentas: Docker Engine, Docker Compose e o GNU Make
+# que le este arquivo. Nada alem delas.
+#
+# As dependencias de PHP e de Node sao instaladas pelas proprias imagens do
+# projeto, em containers descartaveis: nem interpretador, nem gerenciador de
+# pacotes, nem cliente de banco precisam existir no host.
 #
 # A ordem das etapas nao e detalhe, e esta declarada nas dependencias entre os
 # alvos:
@@ -150,9 +152,9 @@ $(MODULOS): frontend/package.json frontend/package-lock.json docker/frontend/Doc
 # devolve os consumidores, espera pelas verificacoes de saude e so entao roda o
 # navegador num container descartavel.
 #
-# Nada e exigido da maquina alem de Docker: o Playwright e os navegadores vivem
-# na imagem do profile `e2e`, que `make up` nao sobe e `docker compose ps` nao
-# lista.
+# Nada e exigido do host alem das mesmas tres ferramentas da subida: o Playwright
+# e os navegadores vivem na imagem do profile `e2e`, que `make up` nao sobe e
+# `docker compose ps` nao lista.
 #
 # A logica fica no script, e nao aqui, porque ela tem espera com limite de tempo,
 # diagnostico e codigos de saida a preservar — coisas que uma receita de `make`

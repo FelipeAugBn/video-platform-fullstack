@@ -70,8 +70,11 @@ A senha aparece em texto puro aqui porque é uma credencial local e fictícia,
 criada para a avaliação. No banco ela é gravada apenas como hash, e nenhuma
 resposta da API a devolve.
 
-Este é o único lugar onde as credenciais de demonstração estão documentadas; os
-demais documentos apontam para cá em vez de repeti-las.
+As credenciais completas de demonstração são apresentadas nesta seção, e os
+demais documentos apontam para cá em vez de repeti-las. O único outro literal da
+senha aparece no **exemplo de requisição** do `POST /api/auth/login` em
+[`openapi.yaml`](openapi.yaml), onde existe para que o contrato importado numa
+ferramenta de requisições autentique sem edição.
 
 ---
 

@@ -30,10 +30,25 @@ return [
 
     'disks' => [
 
+        /*
+        | O disco local existe como padrao do framework, mas nao guarda video.
+        |
+        | Todo objeto de video vive no armazenamento compativel com S3, alcancado
+        | pela porta `ObjectStorage` (plan §§11 e 12). O navegador nunca busca um
+        | arquivo desta aplicacao: ele recebe uma URL pre-assinada e vai direto ao
+        | armazenamento.
+        |
+        | Por isso `serve` e `false`. Em `true` — o padrao do esqueleto — o
+        | framework registra sozinho `GET /storage/{path}` e `PUT /storage/{path}`
+        | para servir e receber arquivos deste disco. As duas ficariam declaradas
+        | sem nenhum caso de uso, fora do contrato OpenAPI e fora de qualquer
+        | teste de autorizacao: superficie HTTP que ninguem chama e que ninguem
+        | revisa. `Tests\Feature\Shared\HttpSurfaceTest` prova a ausencia delas.
+        */
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],

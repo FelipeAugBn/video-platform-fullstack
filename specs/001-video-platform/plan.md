@@ -1063,6 +1063,26 @@ reconduz à autenticação, o outro não tem saída pela mesma sessão.
 As duas rotas nomeadas pelo desafio — `POST /api/webhooks/video-processing` e
 `GET /api/lessons/{lesson}/playback` — são preservadas literalmente.
 
+**A tabela acima é a superfície inteira**, mais `GET /up`, que fica fora do
+contrato por ser sinal de prontidão e não operação de negócio (§18.2). São 21
+operações documentadas e 22 registradas — `HEAD` não entra na contagem porque o
+roteador o deriva de cada `GET`, e não porque seja recusado. Não há rota de
+leitura ou escrita sobre o sistema de arquivos local: a opção que as registraria
+automaticamente está desligada (§11.1).
+
+Duas verificações distintas sustentam isso, e vale não confundi-las:
+
+| O quê | Como | Quando |
+| --- | --- | --- |
+| As rotas registradas são exatamente uma lista fechada | Teste automatizado, por igualdade contra uma *allowlist* escrita no próprio teste | Toda execução da suíte |
+| Essa lista corresponde às 21 operações do `openapi.yaml` | Conferência manual, na revisão | Sempre que um dos dois lados mudar |
+| O documento OpenAPI é válido e seus exemplos batem com os schemas | `make openapi-lint` | Localmente e na pipeline |
+
+O teste **não lê** o contrato, e isso é deliberado: um mecanismo cruzando os dois
+seria uma segunda validação, com política própria de sincronização, para afirmar
+o que a revisão já afirma — a mesma duplicação que §10.5 descarta. O que o teste
+garante é que um endereço novo apareça na suíte em vez de passar despercebido.
+
 Sem prefixo de versão. Introduzir `/v1` antes de existir um segundo consumidor do
 contrato é cerimônia sem benefício; a documentação OpenAPI, versionada junto do
 código, é onde uma mudança de contrato fica visível na revisão.
@@ -1105,6 +1125,20 @@ com S3 mantém o adapter substituível por um provedor real.
 RustFS foi preferido ao MinIO pelo estado atual de manutenção do projeto
 comunitário do MinIO. É a decisão de maior risco técnico deste plano — ver a
 seção 19.
+
+**Como consequência, o disco local do framework não serve arquivo nenhum por
+HTTP.** O esqueleto do Laravel traz `serve => true` no disco local, e essa opção
+registra sozinha duas rotas — `GET /storage/{path}` e `PUT /storage/{path}` —
+para ler e receber arquivos daquele disco. Nesta arquitetura elas não têm caso de
+uso: o vídeo nunca passa pela aplicação, e quem entrega os bytes nas duas
+direções é o storage, por URL pré-assinada.
+
+`config/filesystems.php` desliga a opção. O ganho é superfície menor e contrato
+coerente: a lista de rotas registradas passa a ser exatamente a do OpenAPI mais
+o endpoint de prontidão, sem endereço que a documentação não descreve e que
+nenhum teste de autorização cobre. O trade-off é que passar a servir arquivos
+locais no futuro exigirá reativar a opção conscientemente — o que é justamente o
+comportamento desejado para uma superfície pública.
 
 ### 11.2 Parâmetros
 
@@ -1926,17 +1960,23 @@ de domínio depender dele.** T001 executou o spike e T002 registrou a evidência
 comprovados na prática — upload multipart, política de CORS, `HeadObject` e URLs
 pré-assinadas —, e o RustFS ficou aprovado para a arquitetura.
 
-Duas das três lacunas do spike continuam abertas, e uma foi fechada. **O envio
-de uma única parte deixou de ser limitação:** T042 implementou a porta
-`ObjectStorage` e o adapter S3, e o teste de integração executa um multipart real
-de duas partes contra o storage do Compose, com inspeção e leitura verificadas.
-Seguem valendo: a expiração das URLs foi configurada mas o prazo real nunca
-chegou a vencer durante a validação, e a versão aprovada é uma **release
-candidate**.
+Das três lacunas que o spike deixou abertas, uma foi fechada e duas seguem
+valendo.
 
-O adapter existir não significa que o envio exista: a aplicação ainda não abre,
-conclui nem verifica upload nenhum. O agregado `VideoAttempt` e o fluxo de envio
-chegam em T043.
+**Fechada — o envio de uma única parte deixou de ser limitação.** A porta
+`ObjectStorage` e o adapter S3 existem, o teste de integração executa um
+multipart real de duas partes contra o storage do Compose, com inspeção e leitura
+verificadas, e o fluxo completo de envio — abertura, URL por parte, conclusão e
+verificação por `HeadObject` — está implementado sobre o agregado `VideoAttempt`
+e é exercitado de ponta a ponta pela jornada integrada.
+
+**Aberta — a expiração das URLs pré-assinadas nunca foi observada vencendo.** Os
+prazos são configurados no momento em que cada URL é gerada, e é isso que foi
+verificado. O que nenhuma validação fez foi aguardar o vencimento para observar
+o RustFS recusando uma URL expirada — a verificação do prazo, do lado do
+armazenamento, permanece não exercitada.
+
+**Aberta — a versão aprovada é uma *release candidate*,** e não uma versão final.
 
 **Sanctum exige domínio-base compartilhado.** Frontend e API precisam
 compartilhar o domínio-base no ambiente publicado — restrição a considerar se
