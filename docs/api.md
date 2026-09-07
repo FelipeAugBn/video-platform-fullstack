@@ -16,10 +16,13 @@ normativa: se este guia e ele divergirem, vale o `openapi.yaml`.
 
 O ambiente sobe com `make up`, na raiz do repositório.
 
-**O que a máquina precisa ter:** Docker com Compose, e mais nada. Os exemplos de
-terminal deste guia usam `curl` e utilitários básicos de shell (`grep`, `cut`);
-tudo o que exige um interpretador é executado **dentro dos containers**. Não é
-necessário instalar PHP, Node, Python nem o linter no host.
+**O que a máquina precisa ter:** para a execução normal, **Docker Engine, Docker
+Compose e GNU Make**. Os exemplos de terminal deste guia são opcionais e pedem
+também um shell com `curl`, `grep` e `cut`.
+
+Nada além disso: tudo o que exige um interpretador é executado **dentro dos
+containers**. PHP, Node, Python, bancos de dados e os linters continuam
+dispensados no host.
 
 ---
 
@@ -129,9 +132,23 @@ compartilham a mesma senha, declarada no próprio seed.
 | `consumer` | `consumer@video-platform.test` | Jornada de consumo: catálogo concedido e reprodução |
 | `producer` | `other-producer@video-platform.test` | Comprovar o isolamento: o que ele vê não é o do primeiro |
 
-O seed também deixa pronta uma concessão de acesso do consumidor a um curso e uma
-tentativa de vídeo em `failed`, para exercitar a negativa sem precisar quebrar
-nada à mão.
+O seed também deixa pronta uma concessão de acesso do consumidor ao curso da
+jornada principal, e — num curso **separado**, dedicado à demonstração de falha —
+uma tentativa de vídeo parada em `processing`.
+
+Ela fica nesse estado porque `processing` é o único a partir do qual um callback
+de falha é uma transição válida: a tentativa está pronta para **receber** o
+desfecho negativo, e não já em posse dele. Quem o entrega é o comando de
+demonstração, pelo endpoint HTTP real e assinado, sem que nada precise ser
+quebrado à mão:
+
+```bash
+ATTEMPT_ID="01936f1a-7c00-7a3e-9b7d-2f5c8e4a1d60"
+docker compose run --rm api php artisan demo:simulate-video-failure "$ATTEMPT_ID"
+```
+
+O roteiro completo, com o que observar na interface, está no
+[guia de demonstração](demonstracao.md).
 
 ---
 

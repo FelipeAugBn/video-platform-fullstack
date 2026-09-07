@@ -1867,7 +1867,7 @@ sendo os únicos do comando normal.
     comandos do workflow verdes localmente. A execução remota é responsabilidade
     de T104 e **não bloqueia esta tarefa**.
 
-- [ ] **T104** Evidência remota da pipeline
+- [x] **T104** Evidência remota da pipeline
   - **Objetivo:** fechar a única parte da verificação que a implementação não pode
     executar.
   - **Arquivos previstos:** nenhum — é uma tarefa de verificação.
@@ -1906,7 +1906,7 @@ sendo os únicos do comando normal.
 
 ## Fase 18 — Documentação e fechamento
 
-- [ ] **T105** README, arquitetura, limitações e roteiro de demonstração
+- [x] **T105** README, arquitetura, limitações e roteiro de demonstração
   - **Objetivo:** outro desenvolvedor compreende, executa, avalia e demonstra a
     solução sem ler o código.
   - **Arquivos previstos:** `README.md`, `docs/demonstracao.md`.

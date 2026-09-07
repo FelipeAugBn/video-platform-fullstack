@@ -1,145 +1,56 @@
 # Guia de demonstração
 
-Este documento descreve **os dados que o ambiente prepara sozinho** e para que
-serve cada um deles. Ele é iniciado junto do esquema do banco e cresce conforme
-as funcionalidades chegam: o roteiro completo das duas jornadas, com a sequência
-de telas, é escrito ao final da implementação.
+Roteiro para reproduzir as duas jornadas da plataforma pela interface, do login à
+reprodução do vídeo, e para acionar o cenário de falha de processamento.
 
 Tudo aqui é ficcional e local. Não há dado pessoal, chave de produção ou segredo
 real neste repositório.
 
-## O que já existe
+---
 
-O banco completo, os dados de avaliação, a **autenticação** e o **catálogo do
-produtor inteiro**: as três contas abaixo entram pela API, a sessão é mantida por
-cookie, cada perfil é reconhecido, e um produtor autenticado já cria, lista e
-consulta os próprios cursos, organiza módulos e aulas dentro deles e lê a
-estrutura completa do curso de uma vez — sem alcançar nada de outro produtor.
+## Antes de começar
 
-Ainda **não** existem telas, nem envio de vídeo, publicação ou catálogo do
-consumidor. O que este documento descreve é a árvore do conteúdo funcionando de
-ponta a ponta: regra de negócio, caso de uso, persistência e API.
-
-## Endpoints disponíveis
-
-| Método e rota | O que faz |
-| --- | --- |
-| `GET /sanctum/csrf-cookie` | Entrega o cookie de proteção que as operações seguintes exigem |
-| `POST /api/auth/login` | Autentica e abre a sessão |
-| `GET /api/auth/me` | Devolve quem está autenticado na sessão atual |
-| `POST /api/auth/logout` | Encerra a sessão |
-| `POST /api/courses` | Cria um curso do produtor autenticado |
-| `GET /api/courses` | Lista, paginados, os cursos do produtor autenticado |
-| `GET /api/courses/{course}` | Devolve um curso do próprio produtor |
-| `POST /api/courses/{course}/modules` | Cria um módulo no fim do curso |
-| `GET /api/courses/{course}/modules` | Lista os módulos do curso, na ordem |
-| `POST /api/modules/{module}/lessons` | Cria uma aula no fim do módulo |
-| `GET /api/lessons/{lesson}` | Devolve uma aula, com o estado do vídeo dela |
-| `GET /api/courses/{course}/structure` | Devolve o curso com módulos e aulas, ordenados |
-
-A API responde em `http://localhost:8080`.
-
-Todas as rotas de catálogo exigem sessão válida **e** perfil de produtor. Um
-consumidor autenticado recebe `403`.
-
-Cinco detalhes do comportamento, úteis para quem for avaliar:
-
-- **Uma operação que altera estado exige o cookie de proteção.** Sem ele, a
-  resposta é `419` com o código `CSRF_TOKEN_MISMATCH`, e nada é executado. É por
-  isso que o primeiro passo é sempre buscar o cookie.
-- **Credencial recusada responde sempre igual.** E-mail que não existe e senha
-  errada produzem exatamente a mesma resposta `422`. A API não diz qual dos dois
-  falhou, de propósito: dizer transformaria a tela de login num verificador de
-  quem tem conta.
-- **Sem sessão, a resposta é `401`**, que é diferente de `403`. O primeiro
-  significa "entre de novo"; o segundo, "você está autenticado, mas este perfil
-  não pode".
-- **Curso de outro produtor responde `404`, e não `403`.** A resposta é idêntica
-  à de um curso que nunca existiu — mesmo status, mesmo cabeçalho, mesmo corpo.
-  Um `403` confirmaria que aquele identificador existe, e quem percorresse uma
-  lista de identificadores obteria o catálogo alheio sem nunca ver o conteúdo.
-- **A lista e a contagem também respeitam o isolamento.** O `meta.total` de um
-  produtor não inclui cursos de ninguém mais: o recorte por dono acontece na
-  consulta ao banco, antes de contar e paginar. Sem isso, o número sozinho já
-  revelaria quantos cursos os outros produtores têm.
-
-### Cursos: o que esperar
-
-O curso nasce em `draft` e recebe um identificador gerado pelo backend. Título e
-descrição vêm do corpo da requisição; **proprietário, estado, identificador e
-data de criação não** — eles são definidos pelo servidor, e enviá-los no corpo
-não altera nada.
-
-A listagem devolve 15 itens por página por padrão. `per_page` acima de 50 é
-atendido e limitado a 50; `per_page` zero, negativo ou não numérico é recusado
-com `422`. A ordem é do curso mais recente para o mais antigo.
-
-### Módulos e aulas: o que esperar
-
-**A posição é do servidor, e o formulário nem tem esse campo.** Um módulo novo
-entra no fim do curso, uma aula nova entra no fim do módulo, e a posição é sempre
-a próxima livre: 1, 2, 3, 4. Enviar `position` no corpo não muda nada — nem
-mesmo pedir a posição 1 quando ela já está ocupada. Nenhum item já criado é
-deslocado.
-
-Cada pai tem a sua própria sequência. Dois cursos começam do 1 cada um; dois
-módulos do mesmo curso também.
-
-**A aula nasce rascunho e sem vídeo.** `published_at` e `video_state` vêm nulos, e
-enviá-los no corpo não tem efeito. `video_state` passa a refletir o estado real da
-tentativa de vídeo quando ela existir — publicação e envio chegam nas próximas
-etapas.
-
-**A estrutura é uma leitura só e não é paginada.** `GET /api/courses/{course}/structure`
-devolve o curso, seus módulos e as aulas de cada módulo, todos na ordem de
-posição, incluindo os rascunhos. Paginar uma árvore quebraria a ordem que ela
-existe para preservar. Curso sem módulos devolve `modules: []`; módulo sem aulas,
-`lessons: []`.
-
-**O isolamento vale na árvore inteira.** Criar módulo em curso de outro produtor,
-criar aula em módulo alheio, consultar aula alheia ou pedir a estrutura de um
-curso que não é seu: as quatro respondem o mesmo `404` de recurso inexistente. A
-verificação do dono acontece dentro da consulta ao banco, atravessando aula →
-módulo → curso → proprietário — o conteúdo alheio nunca chega a ser carregado.
-
-### Percorrendo o fluxo sem interface
-
-Ainda não há tela de login. Para exercitar a jornada agora, qualquer cliente HTTP
-que guarde cookies serve — importe a documentação da API quando ela existir, ou
-use um cliente de linha de comando com um arquivo de cookies. A sequência é:
-buscar o cookie de proteção, enviar o login com o valor desse cookie no cabeçalho
-`X-XSRF-TOKEN`, consultar `GET /api/auth/me` e encerrar com `POST /api/auth/logout`.
-
-Com a sessão aberta, `POST /api/courses` cria um curso — também exigindo o
-cabeçalho `X-XSRF-TOKEN`, por ser uma operação que altera estado — e
-`GET /api/courses` lista o que aquele produtor tem. Em seguida,
-`POST /api/courses/{course}/modules` e `POST /api/modules/{module}/lessons`
-montam a árvore, e `GET /api/courses/{course}/structure` mostra o resultado
-inteiro. Para conferir o isolamento, basta pedir, autenticado como um produtor, o
-identificador de um curso do outro: a resposta é `404`.
-
-## Como os dados são preparados
-
-O serviço `setup` roda uma vez a cada subida do ambiente, aplica as migrations
-pendentes e executa o seed:
+O ambiente precisa estar de pé. Na raiz do repositório:
 
 ```bash
+cp .env.example .env   # apenas na primeira vez
 make up
 ```
 
-O seed **insere o que falta e não altera o que já existe**. Subir o ambiente de
-novo não duplica registros nem desfaz alterações feitas durante uma
-demonstração. A contrapartida é que ele prepara, mas não repara: para devolver o
-cenário ao estado inicial depois de exercitá-lo, recrie o banco.
+| O quê | Endereço |
+| --- | --- |
+| Interface | <http://localhost:3000/login> |
+| API | <http://localhost:8080> |
+| Armazenamento de objetos | <http://localhost:19000> |
 
-> **Atenção — comando destrutivo.** `migrate:fresh` **apaga todas as tabelas e
-> todos os dados** do banco configurado antes de recriá-lo do zero. Use-o apenas
-> no ambiente local de avaliação, e apenas quando a intenção for descartar tudo
-> o que existe.
+A demonstração acontece **pela interface**. A API pode ser exercitada
+separadamente, e para isso existem o [guia da API](api.md) e o
+[contrato OpenAPI](openapi.yaml) — mas nenhum passo deste roteiro depende de
+chamada manual.
+
+### Preparar o cenário
+
+O seed **insere o que falta e não altera o que já existe**: subir o ambiente de
+novo não duplica registros nem desfaz o que foi feito numa demonstração
+anterior. A contrapartida é que ele prepara, mas não repara.
+
+Se o cenário já tiver sido exercitado — pela demonstração ou por `make e2e` —,
+devolva-o ao estado inicial antes de recomeçar:
 
 ```bash
-docker compose run --rm api php artisan migrate:fresh --seed
+docker compose stop worker simulator-worker
+docker compose run --rm api php artisan migrate:fresh --seed --force
+docker compose up --detach worker simulator-worker
 ```
+
+> **Comando destrutivo.** `migrate:fresh` apaga todas as tabelas e todos os dados
+> antes de recriá-los. Use-o apenas neste ambiente local de avaliação.
+
+Os consumidores da fila param antes e voltam depois porque recriar o esquema no
+meio de um `queue:work` ativo é uma corrida: o consumidor pode ler ou gravar numa
+tabela que está sendo derrubada.
+
+---
 
 ## Contas de avaliação
 
@@ -162,6 +73,8 @@ resposta da API a devolve.
 Este é o único lugar onde as credenciais de demonstração estão documentadas; os
 demais documentos apontam para cá em vez de repeti-las.
 
+---
+
 ## Os três cenários preparados
 
 O seed monta três situações independentes. Elas não se tocam de propósito:
@@ -169,31 +82,34 @@ exercitar uma não interfere nas outras.
 
 ### 1. Curso da jornada principal — começa vazio
 
-**Fundamentos de Produção de Vídeo**, do produtor de demonstração, em `draft`,
-com acesso já concedido ao consumidor.
+**`Fundamentos de Producao de Video`**, do produtor de demonstração, em
+rascunho, com acesso já concedido ao consumidor.
 
-O curso não tem nenhum módulo e nenhuma aula, e é assim que ele deve permanecer
-até a demonstração começar. É esse vazio que a jornada preenche: criar o módulo,
-criar a aula, enviar o vídeo, publicar e então consumir como o outro perfil. Os
-dois primeiros passos já funcionam pela API.
+O curso não tem nenhum módulo e nenhuma aula, e é assim que ele deve estar quando
+a demonstração começa. É esse vazio que a jornada preenche: criar o módulo, criar
+a aula, enviar o vídeo, publicar e então consumir como o outro perfil.
 
-A jornada parte de um curso já concedido porque não existe operação para
-conceder acesso a um curso recém-criado — concessões são criadas apenas por
-seed nesta entrega. A criação de um curso novo é demonstrada separadamente.
+A jornada parte de um curso **já concedido** porque não existe operação para
+conceder acesso a um curso recém-criado — concessões são criadas apenas por seed
+nesta entrega. Criar um curso do zero funciona e pode ser demonstrado à parte,
+mas ele não apareceria para o consumidor, e a jornada terminaria num catálogo
+vazio.
 
 ### 2. Curso de outro produtor — para provar isolamento
 
-**Curso de Outro Produtor**, pertencente à terceira conta, sem concessão para o
+**`Curso de Outro Produtor`**, pertencente à terceira conta, sem concessão para o
 consumidor de demonstração.
 
-Serve de alvo real para verificar que um produtor não alcança o conteúdo de
-outro e que o consumidor não vê cursos que não lhe foram concedidos.
+Serve de alvo real para verificar duas coisas: que um produtor não alcança o
+conteúdo de outro, e que o consumidor não vê cursos que não lhe foram concedidos.
+Entrando como `producer@video-platform.test`, ele **não** aparece na lista; e
+como `consumer@video-platform.test`, tampouco aparece no catálogo.
 
 ### 3. Cenário dedicado de falha de processamento
 
-Um curso **separado** — *Cenário de Falha de Processamento* —, também do
-produtor de demonstração, com módulo e aula próprios e uma tentativa de vídeo
-parada no estado `processing`.
+Um curso **separado** — `Cenario de Falha de Processamento` —, também do produtor
+de demonstração, com módulo e aula próprios e uma tentativa de vídeo parada no
+estado `processing`.
 
 O identificador da tentativa é fixo e documentado:
 
@@ -210,22 +126,203 @@ Três detalhes desse cenário:
 - a tentativa está em `processing` porque é o único estado a partir do qual um
   callback de falha é uma transição válida;
 - a aula aponta para essa tentativa e ainda não está publicada;
-- **nenhum arquivo existe no storage** para ela, e não precisa existir — o
+- **nenhum arquivo existe no armazenamento** para ela, e não precisa existir — o
   callback de falha não lê o vídeo.
 
 O curso da jornada principal não é tocado por esse cenário. Acionar a falha não
 suja o caminho da demonstração de sucesso.
 
-> **O comando que dispara a falha ainda não existe.** Ele é implementado junto
-> do simulador de processamento, e este documento passa a descrevê-lo quando
-> isso acontecer. Até lá, o que existe é o cenário preparado e esperando.
+---
 
-## Conferindo o cenário
+## Roteiro 1 — a jornada principal
 
-Para ver o que foi preparado, sem depender de tela ou endpoint:
+Do login do produtor à reprodução pelo consumidor. Leva poucos minutos e não
+exige nenhum comando durante o percurso.
+
+**Arquivo de vídeo.** Qualquer MP4 pequeno serve. O repositório já traz um:
+`e2e/fixtures/video-curto.mp4` — 1,7 KB, válido, e menor que uma parte do envio
+multipart, então a transferência acontece numa única parte.
+
+### Como produtor
+
+1. **Entrar.** Abra <http://localhost:3000/login>, preencha **E-mail** com
+   `producer@video-platform.test` e **Senha** com `VideoDemo2026!`, e clique em
+   **Entrar**.
+
+   A tela **Meus cursos** aparece com os dois cursos deste produtor:
+   `Fundamentos de Producao de Video` e `Cenario de Falha de Processamento`. O
+   curso do outro produtor **não** está na lista — é o isolamento em ação.
+
+2. **Abrir o curso.** Clique em `Fundamentos de Producao de Video`.
+
+   O curso abre com a etiqueta **Rascunho** e sem nenhum módulo.
+
+3. **Criar o módulo.** No campo **Titulo do modulo**, escreva um título — por
+   exemplo `Modulo 1 - Fundamentos` — e clique em **Criar modulo**.
+
+   Ele aparece na posição 1. A posição é do servidor: o formulário nem tem esse
+   campo.
+
+4. **Criar a aula.** Dentro do módulo recém-criado, no campo **Nova aula**,
+   escreva um título — por exemplo `Aula 1 - Enquadramento` — e clique em
+   **Criar aula**.
+
+   A aula nasce **rascunho e sem vídeo**.
+
+5. **Enviar o vídeo.** Na aula, use **Arquivo de video** e selecione o MP4.
+
+   Selecionar o arquivo é a única ação: a interface abre o envio, pede uma URL
+   assinada por parte, envia cada parte **direto ao armazenamento** e só então
+   pede a conclusão à API. O painel mostra o progresso real, em partes
+   concluídas sobre o total.
+
+6. **Acompanhar até o fim.** O painel percorre, sem intervenção:
+
+   | O que aparece | O que está acontecendo |
+   | --- | --- |
+   | *Transferindo o video* | As partes estão indo para o armazenamento |
+   | *Envio concluido* | O servidor verificou o objeto por conta própria |
+   | *Enviado, aguardando processamento* | O trabalho está na fila |
+   | *Processando o video* | O simulador recebeu a tarefa |
+   | **Video pronto** | O callback assinado chegou e o vídeo está `ready` |
+
+   A transição de *Processando* para **Video pronto** costuma levar poucos
+   segundos. Nada é clicado nesse intervalo: a tela consulta o estado a cada 3
+   segundos e para sozinha ao chegar num estado terminal.
+
+7. **Publicar.** Clique em **Publicar aula**.
+
+   Duas coisas mudam ao mesmo tempo: a aula passa a **publicada**, e o curso
+   deixa de ser **Rascunho** e passa a **Disponivel** — é a primeira publicação
+   do curso que o torna disponível, na mesma transação.
+
+   O botão só existe a partir de `ready`: fora dele a interface não o mostra, e
+   o backend recusaria a operação de qualquer forma, com um conflito de regra.
+   Esconder é conveniência de tela; quem decide é o servidor.
+
+8. **Sair.** Clique em **Sair**, na barra de sessão.
+
+   É o backend que invalida a sessão; a interface volta ao login.
+
+### Como consumidor
+
+9. **Entrar.** Preencha **E-mail** com `consumer@video-platform.test` e a mesma
+   senha, e clique em **Entrar**.
+
+   O **Catalogo** aparece com **um único curso**: `Fundamentos de Producao de
+   Video`. Os outros dois cursos do seed não têm concessão para esta conta, e o
+   curso só apareceu porque o passo 7 o tornou disponível.
+
+10. **Abrir o curso.** Clique nele.
+
+    A árvore mostra o módulo e a aula criados nos passos 3 e 4 — e **somente**
+    conteúdo publicado. Rascunhos não aparecem para o consumidor.
+
+11. **Reproduzir.** Clique na aula.
+
+    A tela pede os dados de reprodução, e o backend refaz as quatro verificações
+    antes de assinar: consumidor autenticado, concessão para o curso, aula
+    publicada e vídeo `ready`. O player recebe uma **URL assinada válida por
+    cinco minutos**, apontando para o armazenamento — a API entrega dados de
+    reprodução, nunca o arquivo.
+
+    O vídeo toca. A tela informa até quando a permissão vale.
+
+Fim da jornada: o mesmo conteúdo que o produtor criou e publicou é o que o
+consumidor autorizado assiste.
+
+> **A mesma jornada, automatizada.** `make e2e` percorre exatamente estes passos
+> em navegador real, com títulos fixos. Ele recria e semeia a base antes de
+> começar, então descarta o que estiver criado.
+
+---
+
+## Roteiro 2 — a falha de processamento
+
+Separado do roteiro anterior de propósito. Ele age sobre a tentativa **dedicada**
+ao cenário de falha, que pertence ao curso `Cenario de Falha de Processamento` —
+e **não** à aula da jornada principal.
+
+```bash
+ATTEMPT_ID="01936f1a-7c00-7a3e-9b7d-2f5c8e4a1d60"
+docker compose run --rm api php artisan demo:simulate-video-failure "$ATTEMPT_ID"
+```
+
+O terminal confirma:
+
+```
+INFO  Callback de falha entregue para a tentativa 01936f1a-7c00-7a3e-9b7d-2f5c8e4a1d60.
+```
+
+### O que observar
+
+Entre como `producer@video-platform.test`, abra o curso
+`Cenario de Falha de Processamento` e olhe a aula
+`Aula com Video em Processamento`:
+
+- o painel do vídeo, que antes dizia *Processando o video*, passa a **Falha no
+  video**, com a mensagem que a API decidiu — *Nao foi possivel processar o
+  video. Envie o arquivo novamente.*;
+- o seletor de arquivo **volta a ser oferecido** — `failed` é o único estado a
+  partir do qual o backend aceita um envio novo para aquela aula;
+- a aula continua **sem poder ser publicada**, porque publicar exige vídeo
+  `ready`;
+- o curso permanece em **Rascunho**.
+
+**Deixe a tela aberta enquanto executa o comando.** A mudança aparece sozinha em
+poucos segundos, na consulta seguinte do acompanhamento — sem recarregar e sem
+clicar em nada. O próprio painel avisa disso antes: enquanto está em
+`processing`, ele diz *"Esta tela se atualiza sozinha."*
+
+### Por que a falha é acionada assim
+
+O desfecho não é sorteado, e não há gatilho escondido no nome do arquivo — um
+gatilho desses é invisível para quem lê o código e frágil para quem escreve o
+teste.
+
+O comando **não escreve em tabela de domínio**. Ele aciona o mesmo componente que
+o `simulator-worker` usa, com o mesmo HMAC, o mesmo contrato e o mesmo endpoint
+HTTP. A única forma de afetar o estado continua sendo o callback assinado — é o
+caminho que um provedor externo de verdade usaria.
+
+### Repetir é inofensivo, e é uma demonstração à parte
+
+Execute o mesmo comando uma segunda vez:
+
+```bash
+docker compose run --rm api php artisan demo:simulate-video-failure "$ATTEMPT_ID"
+```
+
+Ele responde com sucesso outra vez, e **nada muda**. O `event_id` do cenário de
+falha é estável — derivado da tentativa e do cenário —, então a segunda entrega
+carrega o **mesmo** evento. O webhook reconhece a repetição, repete o desfecho já
+registrado e não cria um segundo registro.
+
+É a idempotência do callback demonstrada em duas execuções seguidas: o estado
+continua `failed`, com o mesmo código de falha, e a contagem de eventos recebidos
+não sobe.
+
+---
+
+## Conferir o cenário sem abrir a interface
+
+Para inspecionar o que o seed preparou, ou o resultado de um dos roteiros:
 
 ```bash
 docker compose run --rm api php artisan db:table users
 docker compose run --rm api php artisan db:table courses
 docker compose run --rm api php artisan db:table video_attempts
 ```
+
+---
+
+## Executar as requisições diretamente
+
+A demonstração acima usa a interface. Quem quiser exercitar a API por fora — para
+conferir contratos, códigos de erro ou o isolamento entre contas — encontra o
+caminho pronto em:
+
+| Documento | Para quê |
+| --- | --- |
+| [`api.md`](api.md) | Como autenticar, preservar a sessão e a ordem mínima da jornada, com exemplos executáveis |
+| [`openapi.yaml`](openapi.yaml) | O contrato completo, importável em Postman, Insomnia, Bruno ou Swagger UI |
