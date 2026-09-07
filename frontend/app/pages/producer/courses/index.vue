@@ -195,7 +195,10 @@ onMounted(() => {
       </div>
 
       <template v-else>
-        <CourseListaDeCursos :cursos="cursos" />
+        <CourseListaDeCursos
+          :cursos="cursos"
+          base="/producer/courses"
+        />
 
         <UiNavegacaoDePaginas
           v-if="paginacao && paginacao.last_page > 1"

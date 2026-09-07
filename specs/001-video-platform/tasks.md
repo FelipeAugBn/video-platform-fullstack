@@ -1673,7 +1673,7 @@ fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 ## Fase 15 — Jornada do consumidor
 
-- [ ] **T093** Jornada do consumidor, negativas, responsividade e acessibilidade
+- [x] **T093** Jornada do consumidor, negativas, responsividade e acessibilidade
   - **Objetivo:** o consumidor vê o que pode assistir, navega, reproduz e entende
     quando não consegue.
   - **Arquivos previstos:** `frontend/app/pages/catalog/index.vue`,

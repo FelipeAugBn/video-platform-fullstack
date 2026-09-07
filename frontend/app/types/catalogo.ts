@@ -57,3 +57,33 @@ export type NovoModulo = components['schemas']['NovoModulo']
  * estado de video: a aula nasce em rascunho e sem video.
  */
 export type NovaAula = components['schemas']['NovaAula']
+
+/*
+| A visao do consumidor sobre o mesmo catalogo.
+|
+| Sao tipos **diferentes**, e nao um recorte opcional dos de cima: a aula do
+| consumidor tem cinco campos, `video_state` nao esta entre eles e `published_at`
+| nunca e nula. Reaproveitar `Aula` aqui deixaria a tela ler um campo que a
+| resposta nunca traz, e o compilador nao teria como avisar.
+*/
+
+/**
+ * A aula como o consumidor a recebe. **Nao tem** `video_state`: o
+ * acompanhamento do processamento e assunto de quem produz, e a arvore do
+ * consumidor so contem aula ja publicada.
+ */
+export type AulaDoConsumidor = components['schemas']['AulaDoConsumidor']
+
+export type ModuloComAulasPublicadas = components['schemas']['ModuloComAulasPublicadas']
+
+export type EstruturaDoConsumidor = components['schemas']['EstruturaDoConsumidor']
+
+export type EstruturaDoConsumidorEnvelope = components['schemas']['EstruturaDoConsumidorEnvelope']
+
+/**
+ * Dados de reproducao — URL pre-assinada, tipo do conteudo e o instante em que
+ * a permissao expira. **Nunca o arquivo** (RF-PLB-005).
+ */
+export type Reproducao = components['schemas']['Reproducao']
+
+export type ReproducaoEnvelope = components['schemas']['ReproducaoEnvelope']

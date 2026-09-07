@@ -10,7 +10,8 @@ import type { Curso } from '~/types/catalogo'
  * sequencia que nao corresponde a nenhuma pagina do backend — a segunda pagina
  * viria de um recorte que a primeira contradisse (RN-ORD-002).
  */
-defineProps<{ cursos: Curso[] }>()
+/** `base` apenas atravessa: quem decide o destino e a pagina que lista. */
+defineProps<{ cursos: Curso[], base: string }>()
 </script>
 
 <template>
@@ -22,6 +23,7 @@ defineProps<{ cursos: Curso[] }>()
       v-for="curso in cursos"
       :key="curso.id"
       :curso="curso"
+      :base="base"
     />
   </ul>
 </template>
