@@ -1748,13 +1748,18 @@ O navegador do Playwright **não** é um nono serviço. Ele vive num profile `e2
 que `docker compose up` não sobe. Os oito serviços aprovados no plano continuam
 sendo os únicos do comando normal.
 
-- [ ] **T100** Infraestrutura de E2E, fixture e jornada crítica
+- [x] **T100** Infraestrutura de E2E, fixture e jornada crítica
   - **Objetivo:** provar AC-E2E-001 atravessando interface e backend reais, por um
     único comando reproduzível.
   - **Arquivos previstos:** `e2e/playwright.config.ts`, `docker/e2e/Dockerfile`,
     serviço `e2e` no `docker-compose.yml` **com `profiles: [e2e]`**,
     `e2e/fixtures/video-curto.mp4`, `e2e/tests/jornada-completa.spec.ts`,
     `scripts/e2e.sh` e o alvo `make e2e`.
+
+    A imagem do E2E também carrega `docker/e2e/package.json` e
+    `docker/e2e/package-lock.json`, que fixam a versão da ferramenta ao lado do
+    Dockerfile, e `docker/e2e/encaminhador.mjs`, o ponto de entrada que preserva
+    as três origens públicas dentro do container.
   - **Requisitos:** ABERTO-013; RNF-006, RNF-007; AC-E2E-001; AC-VID-001;
     spec seção 15.5; plan §§16.1, 17.2.
   - **Implementação:** o serviço aponta para o `frontend` pela rede interna e

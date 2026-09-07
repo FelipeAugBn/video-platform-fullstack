@@ -1,0 +1,11 @@
+{
+  "name": "video-platform-e2e-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dependencias da imagem que executa a jornada integrada em navegador real.",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

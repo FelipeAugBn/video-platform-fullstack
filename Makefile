@@ -63,7 +63,7 @@ MODULOS := frontend/node_modules/.package-lock.json
 CHAVE := scripts/ensure-app-key.sh
 
 .DEFAULT_GOAL := up
-.PHONY: up dependencias imagens ambiente chave openapi-lint
+.PHONY: up dependencias imagens ambiente chave openapi-lint e2e
 
 # Alvo oficial da entrega. As etapas 1 a 3 chegam pela cadeia de pre-requisitos.
 up: dependencias
@@ -140,6 +140,28 @@ $(MODULOS): frontend/package.json frontend/package-lock.json docker/frontend/Doc
 	  --env HOME=/tmp \
 	  frontend npm ci
 	@touch $@
+
+# Jornada integrada em navegador real.
+#
+#     make e2e
+#
+# **Entrada oficial do teste de ponta a ponta.** O alvo e um atalho para
+# `scripts/e2e.sh`, que para os consumidores da fila, recria e semeia a base,
+# devolve os consumidores, espera pelas verificacoes de saude e so entao roda o
+# navegador num container descartavel.
+#
+# Nada e exigido da maquina alem de Docker: o Playwright e os navegadores vivem
+# na imagem do profile `e2e`, que `make up` nao sobe e `docker compose ps` nao
+# lista.
+#
+# A logica fica no script, e nao aqui, porque ela tem espera com limite de tempo,
+# diagnostico e codigos de saida a preservar — coisas que uma receita de `make`
+# escreveria em uma linha por comando, sem poder olhar para o resultado do
+# anterior.
+E2E := scripts/e2e.sh
+
+e2e:
+	@$(E2E)
 
 # Validacao do contrato da API.
 #

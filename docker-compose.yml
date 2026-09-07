@@ -489,6 +489,86 @@ services:
       web:
         condition: service_healthy
 
+  # Navegador da jornada integrada. **Nao e um nono servico do ambiente.**
+  #
+  # `profiles` o mantem fora de `docker compose up`, de `docker compose ps` e de
+  # `docker compose down`: os oito servicos normais continuam sendo os unicos do
+  # comando normal, e este so existe quando alguem pede o profile por nome. A
+  # entrada oficial e `make e2e`, que faz isso por dentro de `scripts/e2e.sh`.
+  #
+  # Ele nao recebe o socket do Docker. Tudo o que exige o daemon — parar os
+  # consumidores da fila, recriar e semear a base, esperar pelas verificacoes de
+  # saude — acontece no host, pelo script, antes de o navegador comecar.
+  e2e:
+    profiles: [e2e]
+
+    build:
+      context: ./docker/e2e
+    image: video-platform-e2e:dev
+
+    # Executa uma vez e termina. `docker compose run --rm` ja o descarta; a
+    # declaracao existe para que uma subida acidental do profile tambem nao
+    # deixe container reiniciando em laco.
+    restart: "no"
+
+    environment:
+      # As tres origens publicas da aplicacao, encaminhadas para os servicos
+      # correspondentes da rede interna (plan §16.3).
+      #
+      # Do ponto de vista do Chromium os enderecos continuam sendo exatamente os
+      # que a aplicacao usa fora daqui: o cookie de sessao e host-only, o Sanctum
+      # trata `localhost:3000` como origem first-party, a politica de CORS
+      # autoriza essa origem literal e a URL pre-assinada e assinada sobre
+      # `Host: localhost:19000`. O ponto de entrada da imagem repassa TCP puro,
+      # sem ler nem reescrever nada da requisicao — e por isso as quatro coisas
+      # continuam valendo.
+      #
+      # Trocar aqui por `http://frontend:3000` faria o teste passar a exercitar
+      # uma configuracao que nenhum usuario da aplicacao encontra.
+      E2E_ENCAMINHAMENTOS: "3000=frontend:3000,8080=web:80,19000=rustfs:9000"
+
+      # A origem da interface, e a mesma do encaminhamento acima. Sem valor
+      # padrao na configuracao da suite: rodar a ferramenta fora do caminho
+      # oficial precisa falhar dizendo qual e ele.
+      E2E_BASE_URL: http://localhost:3000
+
+    volumes:
+      # Somente a suite, e somente leitura.
+      #
+      # Tres montagens em vez do diretorio inteiro: o container nao precisa
+      # enxergar codigo de aplicacao, `.env`, dependencias nem o diretorio do
+      # Git, e o `node_modules` da ferramenta vive na imagem, em `/e2e` — montar
+      # `./e2e` por cima o encobriria.
+      - ./e2e/playwright.config.ts:/e2e/playwright.config.ts:ro
+      - ./e2e/tests:/e2e/tests:ro
+      - ./e2e/fixtures:/e2e/fixtures:ro
+
+    working_dir: /e2e
+
+    # Usuario sem privilegio, ja presente na imagem oficial. O navegador nao tem
+    # motivo para rodar como root, e como root ele exigiria desligar o proprio
+    # isolamento para iniciar.
+    user: pwuser
+
+    # O Chromium usa memoria compartilhada entre os processos de renderizacao, e
+    # o padrao de 64 MB do Docker e pequeno o bastante para derrubar a aba no meio
+    # da jornada. Aumentar o tamanho resolve sem compartilhar o espaco de IPC do
+    # host, que seria a outra saida.
+    shm_size: 1gb
+
+    networks:
+      - interna
+
+    # Sem `ports`: nada aqui precisa ser alcancado de fora.
+
+    # A porta de entrada da API precisa estar respondendo. Os demais servicos que
+    # a jornada atravessa sao verificados pelo script, que falha com diagnostico
+    # antes de chegar ate aqui.
+    depends_on:
+      web:
+        condition: service_healthy
+
+
 volumes:
   mysql-dados:
   rustfs-dados:
