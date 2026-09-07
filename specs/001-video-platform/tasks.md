@@ -1593,7 +1593,7 @@ fase inteira roda com o callback sendo exercido diretamente pelos testes.
 
 ## Fase 14 — Jornada do produtor
 
-- [ ] **T085** Catálogo do produtor na interface
+- [x] **T085** Catálogo do produtor na interface
   - **Objetivo:** o produtor vê os próprios cursos, cria um novo, abre o detalhe e
     monta a estrutura.
   - **Arquivos previstos:** `frontend/app/pages/producer/courses/index.vue`,
