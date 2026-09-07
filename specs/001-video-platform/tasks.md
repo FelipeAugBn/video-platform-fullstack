@@ -1830,7 +1830,7 @@ sendo os únicos do comando normal.
 
 ## Fase 17 — Pipeline
 
-- [ ] **T102** Pipeline com os jobs de backend e frontend
+- [x] **T102** Pipeline com os jobs de backend e frontend
   - **Objetivo:** um arquivo de pipeline que instala, verifica e testa as duas
     camadas em paralelo, e constrói o Nuxt.
   - **Arquivos previstos:** `.github/workflows/ci.yml`.

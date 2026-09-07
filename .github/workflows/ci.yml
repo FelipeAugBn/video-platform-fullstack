@@ -1,0 +1,268 @@
+# Verificacao automatica das duas camadas.
+#
+# Um arquivo, dois jobs, nenhuma dependencia entre eles: `backend` e `frontend`
+# comecam juntos, em runners separados, e a reprovacao de um nao impede o outro
+# de reportar o proprio resultado. Falha em qualquer etapa reprova a execucao,
+# porque cada passo roda em `bash` com `set -e` implicito e o job para no
+# primeiro codigo de saida diferente de zero.
+#
+# ## Por que o backend sobe o ambiente do projeto
+#
+# A suite nao depende so do MySQL. Ha integracao real contra o storage de
+# objetos e testes que exercem o callback HTTP de verdade. Declarar servicos
+# soltos aqui — os `services:` do proprio GitHub Actions — produziria um segundo
+# ambiente, parecido com o do `docker-compose.yml` e livre para divergir dele: no
+# dia em que uma variavel mudasse num lugar e nao no outro, a pipeline passaria a
+# aprovar uma configuracao que ninguem executa. Reusar o Compose do repositorio
+# mantem uma unica definicao de ambiente.
+#
+# Rodar apenas a parte da suite que dispensa storage e anunciar o backend como
+# verde seria uma afirmacao falsa. A suite roda inteira, sem filtro.
+#
+# ## O que deliberadamente nao esta aqui
+#
+#   - **O E2E.** Ele permanece reproduzivel por `make e2e`, documentado, e
+#     executado localmente. Subir a pilha completa com navegador a cada push
+#     acrescenta minutos e uma classe propria de instabilidade para reafirmar o
+#     que a jornada ja prova quando executada. O desafio pede que o teste
+#     integrado exista e seja executavel por comando documentado, nao que ele
+#     componha a pipeline (plan §17.4).
+#   - **Cache de dependencias.** Ele nao e necessario para cumprir o requisito e
+#     acrescentaria uma segunda politica de invalidacao para manter correta. Uma
+#     instalacao que reaproveita cache errado falha de um jeito que nao se parece
+#     com o defeito que a causou.
+#   - **Redis, ou qualquer servico novo.** Fila e sessao vivem no MySQL que ja e
+#     obrigatorio (plan §7).
+
+name: CI
+
+# Alteracoes relevantes do repositorio: codigo que chega e alteracao proposta
+# (RNF-017). Sem `workflow_run` e sem reusable workflow — um arquivo so.
+on:
+  push:
+  pull_request:
+
+# O minimo. Nenhum job publica release, comenta em issue ou escreve no
+# repositorio: eles leem o codigo, instalam, verificam e testam.
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Backend: instalacao, formatacao, suite completa e contrato da API.
+  # ---------------------------------------------------------------------------
+  backend:
+    name: Backend
+    runs-on: ubuntu-24.04
+
+    # Teto do job inteiro. A execucao local leva pouco mais de um minuto somando
+    # tudo; o limite existe para que um servico que nunca fica saudavel termine
+    # em minutos, e nao ocupe o runner ate o teto padrao de seis horas.
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        # actions/checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # O runner nasce limpo, entao o arquivo nunca existe aqui. A verificacao
+      # explicita serve a validacao local desta mesma sequencia: uma copia
+      # incondicional sobrescreveria o `.env` real da maquina de quem executa,
+      # inclusive a chave de criptografia ja gerada.
+      - name: Prepara o arquivo de ambiente
+        run: |
+          if [ -f .env ]; then
+            echo "Arquivo de ambiente ja existe; preservado."
+          else
+            cp .env.example .env
+            echo "Arquivo de ambiente criado a partir do exemplo."
+          fi
+
+      # Primeiro passo real, e a ordem importa: a geracao da chave acontece
+      # dentro desta imagem, e a instalacao das dependencias tambem. Construir
+      # depois de instalar resolveria o codigo contra a imagem anterior.
+      - name: Constroi a imagem do backend
+        run: docker compose build api
+
+      # A chave assina o cookie de sessao e cifra o que ele guarda. O script gera
+      # uma so quando falta, nunca substitui a existente e **nunca imprime o
+      # valor** — nem em sucesso, nem em erro.
+      - name: Garante a chave de criptografia
+        run: scripts/ensure-app-key.sh .env
+
+      # `--no-deps` e obrigatorio: sem ele o Compose subiria a preparacao do
+      # ambiente, que exige exatamente o autoload que ainda nao existe.
+      #
+      # O usuario do runner porque `vendor/` cai no bind mount: instalado por
+      # outro dono, o diretorio ficaria inacessivel aos passos seguintes.
+      # `COMPOSER_HOME` aponta para um caminho descartavel dentro do container,
+      # ja que o identificador passado pode nao ter diretorio pessoal na imagem.
+      - name: Instala as dependencias do backend
+        run: |
+          docker compose run --rm --no-deps --user "$(id -u):$(id -g)" \
+            --env COMPOSER_HOME=/tmp/composer \
+            api composer install --no-interaction --prefer-dist
+
+      # Cinco servicos, e nao apenas o banco:
+      #
+      #   mysql   dados, sessao e fila da suite
+      #   rustfs  storage de objetos real, que `ObjectStorageTest` exercita
+      #   setup   cria o bucket, aplica a politica de CORS e migra o banco
+      #   api     o interpretador onde a suite roda
+      #   web     porta HTTP, exigida pelos testes que exercem o callback real
+      #
+      # As dependencias declaradas no Compose continuam valendo: o Compose so
+      # libera `api` depois de `setup` sair com codigo zero, e `web` depois de
+      # `api` ficar saudavel. Este comando retornar sem erro ja prova que a
+      # preparacao terminou bem.
+      - name: Sobe o ambiente do projeto
+        run: docker compose up --detach mysql rustfs setup api web
+
+      # Espera ativa com teto e diagnostico. O `up` acima ja garante a ordem de
+      # inicializacao, mas nao a verificacao de saude do ultimo servico da
+      # cadeia: comecar a suite antes dela produziria uma falha que nao descreve
+      # defeito nenhum.
+      - name: Aguarda as verificacoes de saude
+        run: |
+          servicos='mysql rustfs api web'
+          limite=180
+          intervalo=3
+          decorrido=0
+
+          saude_de() {
+            id="$(docker compose ps --quiet "$1" | head -n 1)"
+            if [ -z "$id" ]; then
+              echo 'ausente'
+              return 0
+            fi
+            docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}sem-verificacao{{end}}' "$id"
+          }
+
+          while true; do
+            pendentes=''
+            for servico in $servicos; do
+              [ "$(saude_de "$servico")" = 'healthy' ] || pendentes="$pendentes $servico"
+            done
+
+            if [ -z "$pendentes" ]; then
+              echo "Todos saudaveis: $servicos"
+              break
+            fi
+
+            if [ "$decorrido" -ge "$limite" ]; then
+              echo "Tempo esgotado esperando:$pendentes" >&2
+              for servico in $servicos; do
+                printf '  %-8s %s\n' "$servico" "$(saude_de "$servico")" >&2
+              done
+              docker compose ps >&2
+              docker compose logs --tail=200 >&2
+              exit 1
+            fi
+
+            sleep "$intervalo"
+            decorrido=$((decorrido + intervalo))
+          done
+
+      # Verificacao adicional de qualidade da camada: formatacao. `--test` nao
+      # altera arquivo — apenas reprova quando algo esta fora do padrao.
+      - name: Verifica a formatacao do PHP
+        run: |
+          docker compose run --rm --no-deps --user "$(id -u):$(id -g)" \
+            api ./vendor/bin/pint --test
+
+      # A suite inteira, sem filtro, sem grupo excluido e sem parada no primeiro
+      # erro: um recorte aqui transformaria "o backend passa" numa afirmacao
+      # sobre outra coisa.
+      #
+      # Sem `--user`: este container nao escreve no bind mount, e precisa
+      # compilar views no `tmpfs` que o servico monta para o usuario do
+      # interpretador. Executado com outro identificador, a compilacao falha por
+      # permissao e o endpoint de prontidao responde 500.
+      - name: Executa a suite do backend
+        run: docker compose run --rm --no-deps api php artisan test
+
+      # Segunda verificacao de qualidade da camada: o contrato publicado precisa
+      # ser um documento OpenAPI valido, com os exemplos conferidos contra os
+      # schemas. O alvo ja roda em container descartavel e fixa a imagem do
+      # linter por tag e digest.
+      - name: Valida o contrato da API
+        run: make openapi-lint
+
+      # Sempre, inclusive depois de uma etapa vermelha. Os volumes sao efemeros
+      # neste runner — nascem neste job e morrem com ele —, entao removê-los aqui
+      # nao destroi dado de ninguem e evita que um runner reaproveitado herde
+      # estado da execucao anterior.
+      - name: Encerra o ambiente
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+
+  # ---------------------------------------------------------------------------
+  # Frontend: instalacao, lint, tipos, suite e build.
+  #
+  # Nao sobe banco, storage, API nem consumidores de fila: nenhuma das cinco
+  # etapas fala com o backend. Os testes usam ambiente de navegador simulado e o
+  # build e estatico.
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        # actions/checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # O arquivo e necessario mesmo sem subir servico algum: o Compose
+      # interpola o arquivo inteiro ao ler a composicao, e as variaveis marcadas
+      # como obrigatorias abortam a leitura quando faltam — inclusive ao executar
+      # um servico que nao as usa.
+      - name: Prepara o arquivo de ambiente
+        run: |
+          if [ -f .env ]; then
+            echo "Arquivo de ambiente ja existe; preservado."
+          else
+            cp .env.example .env
+            echo "Arquivo de ambiente criado a partir do exemplo."
+          fi
+
+      - name: Constroi a imagem do frontend
+        run: docker compose build frontend
+
+      # `npm ci`, nunca `npm install`: ele instala exatamente o que o arquivo de
+      # trava descreve e falha quando o lock diverge do manifesto. `install`
+      # resolveria versoes novas e reescreveria o lock, o que faria a pipeline
+      # testar dependencias que ninguem revisou.
+      - name: Instala as dependencias do frontend
+        run: |
+          docker compose run --rm --no-deps --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            frontend npm ci
+
+      # As quatro etapas seguintes sao sequenciais de proposito. A suite e o
+      # build manipulam os mesmos arquivos gerados do Nuxt dentro do bind mount;
+      # em paralelo, um sobrescreveria o estado intermediario do outro e a falha
+      # apareceria como erro de modulo ausente, longe da causa.
+      - name: Verifica o lint do frontend
+        run: |
+          docker compose run --rm --no-deps --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            frontend npm run lint
+
+      - name: Verifica os tipos
+        run: |
+          docker compose run --rm --no-deps --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            frontend npm run typecheck
+
+      - name: Executa a suite do frontend
+        run: |
+          docker compose run --rm --no-deps --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            frontend npm run test
+
+      - name: Constroi o Nuxt
+        run: |
+          docker compose run --rm --no-deps --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            frontend npm run build
