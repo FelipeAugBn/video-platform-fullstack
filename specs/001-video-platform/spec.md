@@ -781,6 +781,24 @@ do produto. Cada estado abaixo é observável e verificável.
   exige acabamento visual comercial.
 - **RF-UI-017** `[OBRIGATÓRIO]` Regras de negócio não são duplicadas no frontend.
   A interface reflete as decisões do backend em vez de recalculá-las.
+- **RF-UI-018** `[DECISÃO]` O endereço raiz da aplicação encaminha conforme a
+  sessão, em vez de responder como rota inexistente. O desafio não exige uma
+  porta de entrada — a decisão é do projeto, tomada porque a avaliação começa
+  digitando o endereço da plataforma, e uma resposta de rota inexistente ali é
+  indistinguível de aplicação fora do ar. São quatro desfechos:
+
+  | Situação | Desfecho |
+  | --- | --- |
+  | Sessão autenticada, perfil produtor | Encaminha para a área de gestão de cursos |
+  | Sessão autenticada, perfil consumidor | Encaminha para o catálogo |
+  | Ausência de sessão confirmada pela API, ou sessão anônima ou expirada | Encaminha para a autenticação |
+  | Indisponibilidade da API, erro de rede ou resposta fora do contrato | Permanece no endereço raiz, apresenta o estado de indisponibilidade e oferece nova tentativa |
+
+  O quarto desfecho é o que distingue este requisito de um simples
+  redirecionamento: indisponibilidade **não** é tratada como ausência de sessão
+  (RF-UI-011, RF-UI-012, RF-UI-014), e a tela não permanece em carregamento
+  indefinido. O encaminhamento por perfil é o mesmo aplicado após a autenticação,
+  e nenhuma decisão de autorização acontece aqui (RF-UI-017).
 
 ---
 
@@ -1098,6 +1116,18 @@ Quando o produtor visualiza a aula
 Então a interface apresenta o estado correspondente
 E a ação de publicar só está disponível quando o vídeo está `ready`
 
+**AC-UI-005 — o endereço raiz encaminha conforme a sessão**
+Dado um usuário autenticado que abre o endereço raiz da aplicação
+Quando a sessão é reconhecida
+Então ele é encaminhado para a área correspondente ao seu perfil
+E dado um usuário sem sessão, ou cuja sessão expirou
+Então ele é encaminhado para a autenticação
+E dado que a API está indisponível ou a rede falha ao reconhecer a sessão
+Então ele permanece no endereço raiz
+E é apresentado um estado de indisponibilidade, distinto de ausência de sessão
+E a tela não permanece em carregamento indefinido
+E é oferecida nova tentativa
+
 ### 15.5 Jornada integrada
 
 **AC-E2E-001 — a jornada atravessa frontend e backend reais**
@@ -1209,7 +1239,7 @@ Relaciona os grupos de requisitos deste documento às seções do desafio oficia
 | §7.4 | Consumo | RF-PLB-001 a 008; AC-CONS-001 a 003, AC-CONS-005 |
 | §8.1 | Jornada do produtor | Seção 7; RF-PLB-009; AC-PROD-001 a 008 |
 | §8.2 | Jornada do consumidor | Seção 8; RF-CONS-001 a 006; AC-CONS-001 a 005 |
-| §9.1 | Estados de interface | RF-UI-001 a 015; AC-UI-001 a 004 |
+| §9.1 | Estados de interface | RF-UI-001 a 015; AC-UI-001 a 004. RF-UI-018 e AC-UI-005 apoiam-se nos mesmos estados, mas são `[DECISÃO]` do projeto e não derivam desta seção |
 | §9.2 | Upload de arquivos grandes | RF-UI-004; RF-UPL-005; RNF-001; ABERTO-014 |
 | §9.3 | Qualidade da interface | RF-UI-016 |
 | §9.4 | Contrato com a API | RF-UI-009, RF-UI-017; ABERTO-010 |

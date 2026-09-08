@@ -150,7 +150,8 @@ dependências. As seguintes levam segundos.
 | API | <http://localhost:8080> |
 | Armazenamento de objetos | <http://localhost:19000> |
 
-**A porta de entrada é <http://localhost:3000/login>.** As três portas são
+**A porta de entrada é <http://localhost:3000>**, que encaminha para a área do
+perfil quando já há sessão e para o login quando não há. As três portas são
 publicadas apenas em `127.0.0.1`, e não em todas as interfaces da máquina.
 
 Esses três endereços não são intercambiáveis com os nomes internos dos serviços:

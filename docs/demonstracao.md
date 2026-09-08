@@ -19,7 +19,7 @@ make up
 
 | O quê | Endereço |
 | --- | --- |
-| Interface | <http://localhost:3000/login> |
+| Interface | <http://localhost:3000> |
 | API | <http://localhost:8080> |
 | Armazenamento de objetos | <http://localhost:19000> |
 
@@ -148,7 +148,8 @@ multipart, então a transferência acontece numa única parte.
 
 ### Como produtor
 
-1. **Entrar.** Abra <http://localhost:3000/login>, preencha **E-mail** com
+1. **Entrar.** Abra <http://localhost:3000> — a plataforma leva à tela de
+   entrada porque ainda não há sessão. Preencha **E-mail** com
    `producer@video-platform.test` e **Senha** com `VideoDemo2026!`, e clique em
    **Entrar**.
 

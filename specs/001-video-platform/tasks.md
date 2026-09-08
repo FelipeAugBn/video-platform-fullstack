@@ -40,10 +40,12 @@ ficar pronta, uma revisão consolidou as tarefas pendentes em **24**, para ajust
 a granularidade ao recorte funcional que o desafio pede e retirar complexidade sem
 benefício proporcional. Nenhum requisito obrigatório foi removido.
 
-Uma alteração de escopo aprovada depois dessa consolidação acrescentou a **T110**,
-levando a decomposição a **25** tarefas consolidadas e **36** no total, contando
-as onze da fundação. Ela não renumerou nem reaproveitou identificador: entrou no
-próximo número livre.
+Duas alterações de escopo aprovadas depois dessa consolidação acrescentaram a
+**T110** e a **T111**, levando a decomposição a **26** tarefas consolidadas e
+**37** no total, contando as onze da fundação. Nenhuma delas renumerou ou
+reaproveitou identificador: cada uma entrou no próximo número livre. A T110 é
+exigência do desafio elaborada em decisão de produto; a T111 é `[DECISÃO]` do
+projeto, e o desafio não a pede.
 
 Os identificadores **não foram renumerados nem reaproveitados**: os que saíram da
 lista de pendências estão registrados, com destino e motivo, na seção *IDs
@@ -2073,6 +2075,95 @@ sendo os únicos do comando normal.
     completas de backend e frontend, Pint, ESLint, verificação de tipos, build e
     `make e2e` sem modificação da jornada.
 
+- [x] **T111** Porta de entrada da aplicação
+  - **Alteração de escopo aprovada depois da baseline.** Não renumera nem
+    reaproveita identificador: entra como o próximo número livre, e a
+    decomposição consolidada passa de 25 para 26 tarefas.
+  - **Classificação: `[DECISÃO]` do projeto, e não exigência do desafio.** A
+    seção §8 do desafio enumera as duas jornadas e não menciona endereço raiz,
+    página inicial ou encaminhamento. A decisão nasce de uma observação de uso: a
+    avaliação começa digitando o endereço da plataforma, e uma resposta de rota
+    inexistente ali é indistinguível de aplicação fora do ar. Nenhum requisito
+    obrigatório depende desta tarefa, e removê-la devolveria a entrega ao estado
+    anterior sem violar o desafio.
+  - **Objetivo:** o endereço raiz encaminha conforme a sessão, e trata
+    indisponibilidade da API como indisponibilidade — nunca como ausência de
+    sessão.
+  - **Arquivos previstos:** `frontend/app/pages/index.vue`,
+    `frontend/tests/pages/entrada.spec.ts`, `specs/001-video-platform/spec.md`,
+    `specs/001-video-platform/plan.md`, `specs/001-video-platform/tasks.md`,
+    `README.md`, `docs/demonstracao.md`.
+  - **Requisitos:** RF-UI-018, AC-UI-005; RF-UI-001, RF-UI-011, RF-UI-012,
+    RF-UI-014, RF-UI-017.
+  - **Nada muda no backend.** Nenhuma rota, nenhum contrato, nenhum endpoint e
+    nenhum schema do OpenAPI. A tarefa vive inteira na camada de apresentação, e
+    o número de requisições de quem entra pela raiz é o mesmo de quem entra
+    direto na área do perfil: a verificação de sessão é a que `middleware/auth`
+    já faria no destino, e `useAuth` só pergunta enquanto não há resposta.
+  - **Implementação — frontend.** `pages/index.vue` responde por `/` e decide um
+    destino a partir do estado da sessão. Quatro desfechos: perfil `producer`
+    para a área de gestão, perfil `consumer` para o catálogo, ausência
+    confirmada — `401`, `anonima` ou `expirada` — para a autenticação, e
+    indisponibilidade permanecendo na própria rota, com `UiEstadoDeFalha` e nova
+    tentativa.
+
+    O encaminhamento por perfil **não é recalculado**: vem de `destinoDoPerfil`,
+    o mesmo mapa que `useAuth` aplica depois de autenticar. A navegação usa
+    `replace`, para a raiz não ficar no histórico e prender quem usa o botão de
+    voltar.
+
+    A distinção entre os dois últimos desfechos é feita pelo **status**, e não
+    pela existência da exceção: `recuperarSessao` lança nas duas situações, e
+    apenas o `401` afirma algo sobre a sessão. Tratar rede e `5xx` como ausência
+    anunciaria uma perda que não houve e mandaria a pessoa tentar entrar de novo,
+    com a mesma indisponibilidade recusando o login em seguida — agora sem
+    explicação (RF-UI-011, RF-UI-012, RF-UI-014).
+
+    Uma guarda impede a segunda tentativa em voo. Sem ela o desfecho seria
+    errado, e não apenas uma chamada a mais: `recuperarSessao` se recusa a
+    começar enquanto a anterior não terminou, então a segunda passagem chegaria à
+    decisão com a sessão ainda em verificação — nem autenticada, nem ausente — e
+    encaminharia para a autenticação alguém que pode ter sessão válida.
+  - **Decisão na página, e não em middleware de rota.** `middleware/auth` existe
+    para *proteger* telas: evitar que alguém sem sessão aterrisse num conteúdo
+    que só mostraria erros. A raiz não tem conteúdo a proteger, e tem um desfecho
+    que precisa de tela — um middleware que não encaminha deixa a navegação
+    parada, sem nada renderizado, que é exatamente o carregamento indefinido que
+    RF-UI-012 proíbe. Na página, o estado de indisponibilidade e a nova tentativa
+    aparecem no lugar em que a pessoa já está.
+  - **Testes.** `tests/pages/entrada.spec.ts` cobre os quatro desfechos com
+    `useAuth` substituído — o que também prova que o destino por perfil não é
+    recalculado pela tela: um mapa próprio ignoraria o dublê e reprovaria.
+
+    Os três primeiros desfechos são diretos. O quarto é afirmado em cinco
+    cenários, e é onde está o valor da suíte: para rede, `5xx` e resposta fora do
+    contrato, que **não há navegação**, que o estado de indisponibilidade aparece
+    com a situação correta, que o carregamento não permanece, que a nova
+    tentativa chama `recuperarSessao` outra vez, e que uma tentativa
+    bem-sucedida encaminha ao destino do perfil. Um sexto cenário dispara dois
+    cliques no mesmo elemento sem esperar entre eles, que é como a segunda
+    tentativa encontra a primeira em voo.
+
+    Verificado por regressão: uma página escrita pela negação — "se não está
+    autenticado, vá para o login" — passa nos três primeiros desfechos e reprova
+    nos cinco cenários do quarto.
+  - **O E2E não é ampliado, e isso é decisão.** A jornada existente entra por
+    `/login` e continua entrando: o que esta tarefa acrescenta é encaminhamento e
+    tratamento de indisponibilidade, afirmados por teste de página com menos
+    custo e menos instabilidade do que um percurso adicional em navegador.
+    Cenário, fixture, `scripts/e2e.sh`, número de jornadas e pipeline ficam
+    intocados.
+  - **Depende de:** T078, T093. `useAuth`, o estado de sessão e os painéis de
+    estado nascem em T078; a segunda área de destino — o catálogo do
+    consumidor — fecha em T093. Sem as duas não haveria o que consultar nem para
+    onde encaminhar.
+  - **Critério de conclusão:** os quatro desfechos cobertos por teste de página;
+    RF-UI-018 e AC-UI-005 definidos na spec e mapeados na matriz; plano e este
+    documento atualizados na mesma leva; documentação de execução e roteiro
+    apontando o endereço raiz como entrada; suítes completas de backend e
+    frontend, ESLint, verificação de tipos, build e `make e2e` sem modificação da
+    jornada.
+
 - [ ] **T109** Revisão final de rastreabilidade e ausência de segredos
   - **Objetivo:** fechar a entrega conferindo coerência e higiene.
   - **Arquivos previstos:** `specs/001-video-platform/spec.md`,
@@ -2147,9 +2238,9 @@ sendo os únicos do comando normal.
     O `grep` é heurística, não garantia; as três frentes juntas é que sustentam a
     conclusão. Além disso, a matriz de cobertura deste documento é revisada linha
     a linha.
-  - **Depende de:** T104, T105, T110. A alteração de escopo aprovada depois da
-    baseline entrou pela T110, e a revisão final de coerência só fecha depois de
-    ela estar concluída.
+  - **Depende de:** T104, T105, T110, T111. As duas alterações de escopo
+    aprovadas depois da baseline entraram pela T110 e pela T111, e a revisão
+    final de coerência só fecha depois de as duas estarem concluídas.
   - **Critério de conclusão:** coerência confirmada, nenhum segredo encontrado, e
     as três validações externas registradas como concluídas.
 
@@ -2163,8 +2254,10 @@ sendo os únicos do comando normal.
 > pipeline (T104), reprodução a partir de clone limpo (T105) e conferência visual
 > em largura reduzida (T093). A entrega não fecha com qualquer uma delas em
 > aberto.
-> **Alteração de escopo posterior:** a T110 acrescentou a conferência do próprio
-> vídeo pelo produtor, e a T109 passou a depender também dela.
+> **Alterações de escopo posteriores:** a T110 acrescentou a conferência do
+> próprio vídeo pelo produtor, e a T111, a porta de entrada da aplicação — esta
+> como `[DECISÃO]` do projeto, e não como exigência do desafio. A T109 passou a
+> depender das duas.
 > **Ainda não iniciado:** nada dentro do escopo. Os itens fora do MVP permanecem
 > apenas documentados como limitação.
 
@@ -2173,10 +2266,10 @@ sendo os únicos do comando normal.
 ## IDs absorvidos ou retirados da baseline
 
 A decomposição original tinha 109 pacotes. Uma revisão de escopo consolidou as
-tarefas pendentes em **24** — **25** depois da alteração de escopo que criou a
-T110 —, sem remover nenhum requisito obrigatório do desafio: cada critério de
-aceitação continua com tarefa de implementação e validação planejadas, conforme a
-matriz de cobertura abaixo.
+tarefas pendentes em **24** — **26** depois das alterações de escopo que criaram
+a T110 e a T111 —, sem remover nenhum requisito obrigatório do desafio: cada
+critério de aceitação continua com tarefa de implementação e validação
+planejadas, conforme a matriz de cobertura abaixo.
 
 Os identificadores **não foram renumerados nem reaproveitados**. Os que saíram da
 lista de pendências estão aqui, com destino e motivo, para que o histórico mostre
@@ -2283,19 +2376,25 @@ T093 ────┤                         ├─▶ T105 ──┐   T104  ev
                       └─▶ T104 ───────────────┤
                                               │
 T070 ──┐                                      │
-       ├─▶ T110 ───────────────────────────────┘   T110  reproducao pelo produtor
-T088 ──┘
+       ├─▶ T110 ──────────────────────────────┤   T110  reproducao pelo produtor
+T088 ──┘                                      │
+                                              │
+T078 ──┐                                      │
+       ├─▶ T111 ──────────────────────────────┘   T111  porta de entrada
+T093 ──┘
 ```
 
 T100 e T102 não dependem uma da outra: a pipeline não executa o E2E, e o E2E não
 espera a pipeline. T105 depende das duas porque documenta tanto a execução local
 da jornada quanto a pipeline.
 
-T110 é a alteração de escopo aprovada depois da baseline. Ela pende de T070, que
-trouxe a reprodução autorizada e a emissão de URL curta, e de T088, que trouxe a
-tela do produtor com painel do vídeo e ação de publicar — e não do ramo do E2E
-nem do da pipeline, que ela deliberadamente não altera. T109 fecha com T104, T105
-e T110.
+T110 e T111 são as duas alterações de escopo aprovadas depois da baseline, e
+nenhuma delas toca o ramo do E2E ou o da pipeline. T110 pende de T070, que trouxe
+a reprodução autorizada e a emissão de URL curta, e de T088, que trouxe a tela do
+produtor com painel do vídeo e ação de publicar. T111 pende de T078, que trouxe a
+sessão e os painéis de estado, e de T093, que fechou a segunda área de destino —
+sem as duas não haveria o que consultar nem para onde encaminhar. T109 fecha com
+T104, T105, T110 e T111.
 
 ### Dependências que não podem ser invertidas
 
@@ -2314,6 +2413,7 @@ e T110.
 | E2E depende da pilha completa | T100 exige backend, frontend, storage, fila e simulador rodando juntos |
 | Pipeline e E2E são independentes | T102 não executa nem orquestra o E2E; as duas partem de T093 e só se reencontram na documentação, em T105 |
 | Reprodução e tela do produtor antes da conferência | T110 reaproveita a emissão de URL curta nascida em T070 e o item de aula nascido em T088; sem as duas não haveria o que extrair nem onde apresentar |
+| Sessão e áreas de destino antes da porta de entrada | T111 encaminha conforme o perfil e apresenta indisponibilidade: precisa da sessão e dos painéis de estado de T078, e das duas áreas de destino, a segunda delas fechada em T093 |
 
 ### Paralelismo
 
@@ -2366,6 +2466,7 @@ vários, e a coluna de validação nomeia a tarefa em que a prova é executada.
 | Interface | AC-UI-002 | T078 | T078 |
 | Interface | AC-UI-003 | T030, T078 | T030, T078 |
 | Interface | AC-UI-004 | T088 | T088 |
+| Interface | AC-UI-005 | T111 | T111 |
 | Integrado | AC-E2E-001 | T022, T100 | T100 |
 
 ### Requisitos não funcionais
@@ -2386,20 +2487,21 @@ vários, e a coluna de validação nomeia a tarefa em que a prova é executada.
 
 ### Requisitos com destino transitivo
 
-A revisão final conferiu, identificador por identificador, os **216** definidos
+A revisão final conferiu, identificador por identificador, os **218** definidos
 na `spec.md`:
 
 | Família | Definidos |
 | --- | --- |
-| `RF` | 115 |
+| `RF` | 116 |
 | `RN` | 36 |
-| `AC` | 31 |
+| `AC` | 32 |
 | `RNF` | 20 |
 | `ABERTO` | 14 |
 
-Eram 214 na baseline. Os dois acrescentados são RF-PLB-009 e AC-PROD-008, da
-alteração de escopo da T110, e os dois aparecem nominalmente na lista de
-requisitos dela — não entram, portanto, entre os de destino transitivo.
+Eram 214 na baseline. Os quatro acrescentados vieram das duas alterações de
+escopo posteriores: RF-PLB-009 e AC-PROD-008 pela T110, e RF-UI-018 e AC-UI-005
+pela T111. Os quatro aparecem nominalmente na lista de requisitos da tarefa
+correspondente — não entram, portanto, entre os de destino transitivo.
 
 **Todos têm destino, depois de expandidas as notações de intervalo.** Boa parte
 não é citada uma a uma: as tarefas escrevem `RF-CUR-001 a 005` ou

@@ -1736,6 +1736,7 @@ poucas vezes por vídeo.
 ```
 app/
     pages/
+        index.vue                         encaminha conforme o perfil da sessao
         login.vue
         producer/courses/index.vue        lista e criacao
         producer/courses/[id].vue         estrutura, modulos, aulas, upload, conferencia, publicacao
@@ -1752,6 +1753,50 @@ app/
     types/
         api.ts             tipos derivados do contrato OpenAPI
 ```
+
+#### A porta de entrada (RF-UI-018)
+
+`index.vue` responde por `/` e não tem tela própria: ela lê a sessão e decide um
+destino. Existe para que o endereço da plataforma não termine em rota
+inexistente — a avaliação começa digitando esse endereço, e uma resposta de rota
+inexistente ali é indistinguível de aplicação fora do ar.
+
+| Situação | Desfecho |
+| --- | --- |
+| `autenticada`, perfil `producer` | `/producer/courses` |
+| `autenticada`, perfil `consumer` | `/catalog` |
+| `401` na verificação, ou estado `anonima` ou `expirada` | `/login` |
+| Rede, `5xx` ou resposta fora do contrato | Permanece em `/`, apresenta `UiEstadoDeFalha` e oferece nova tentativa |
+
+O encaminhamento por perfil **não é recalculado aqui**: vem de
+`destinoDoPerfil`, o mesmo mapa que `useAuth` aplica depois de autenticar. Um
+segundo mapa divergiria do primeiro na primeira mudança, e a raiz passaria a
+mandar para um lugar diferente daquele que o login escolhe.
+
+**O quarto desfecho é o que dá peso a esta rota.** Uma falha de rede não prova
+ausência de sessão: encaminhar para a autenticação quem apenas ficou sem conexão
+anunciaria uma perda que não houve, esconderia a causa real e ainda o faria
+tentar entrar de novo — com a mesma indisponibilidade recusando o login em
+seguida, agora sem explicação. A distinção vem do **status** da resposta, e não
+da existência da exceção: `recuperarSessao` lança nos dois casos, e apenas o
+`401` afirma algo sobre a sessão (RF-UI-011, RF-UI-012, RF-UI-014).
+
+O encaminhamento usa `replace`, e não `push`. A raiz não é um lugar: mantida no
+histórico, ela faria o "voltar" a partir da área do perfil cair nela e ser
+reencaminhado para a frente de novo, prendendo quem tenta sair.
+
+**Por que uma página, e não um middleware de rota.** `middleware/auth` existe
+para *proteger* telas — evitar que alguém sem sessão aterrisse num conteúdo que
+só mostraria erros. A raiz não tem conteúdo a proteger, e tem um desfecho que
+precisa de tela: um middleware que não encaminha deixa a navegação parada, sem
+nada renderizado, que é exatamente o carregamento indefinido que RF-UI-012
+proíbe. A decisão na própria página permite apresentar o estado de
+indisponibilidade e a nova tentativa no mesmo lugar em que a pessoa já está.
+
+A rota não protege nada: propriedade, concessão e perfil continuam decididos pelo
+backend a cada requisição (RN-AUT-002, RF-UI-017). Entrar por `/` também não
+acrescenta requisição — a verificação de sessão é a mesma que `middleware/auth`
+faria na tela de destino, e `useAuth` só pergunta enquanto não há resposta.
 
 `useApi` é o único ponto que fala HTTP. Ele injeta credenciais, cuida do
 `XSRF-TOKEN`, e converte `problem+json` em um erro tipado com `status` e `code` —
